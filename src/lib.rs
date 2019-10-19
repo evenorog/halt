@@ -1,5 +1,12 @@
+//! Provides functionality for pausing and resuming iterators, readers, and writers.
+
+use std::error;
+use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
+
+/// A custom result type for halt.
+pub type Result = std::result::Result<(), Error>;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum State {
@@ -8,30 +15,47 @@ enum State {
     Stopped,
 }
 
-pub type Result = std::result::Result<(), Error>;
-
+/// The error type.
 #[derive(Copy, Clone, Debug)]
 pub enum Error {
+    /// The receiver has been dropped.
     NoReceiver,
+    /// Failed to take a lock on the receiver.
     FailedToLock,
 }
 
+impl Display for Error {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Error::NoReceiver => f.write_str("the receiver has been dropped"),
+            Error::FailedToLock => f.write_str("failed to take a lock on the receiver"),
+        }
+    }
+}
+
+impl error::Error for Error {}
+
+/// A controller that allows for pausing, stopping, and resuming the `Halt` wrapper.
 #[derive(Debug)]
 pub struct Controller {
     receiver: Weak<Receiver>,
 }
 
 impl Controller {
+    /// Pauses the iterator, causes the thread that runs the iterator to sleep until resumed or stopped.
     #[inline]
     pub fn pause(&self) -> Result {
         self.set(State::Paused)
     }
 
+    /// Resumes the iterator, causes the iterator to run as normal.
     #[inline]
     pub fn resume(&self) -> Result {
         self.set_and_notify(State::Running)
     }
 
+    /// Stops the iterator, causes the iterator to return `None` until resumed or paused.
     #[inline]
     pub fn stop(&self) -> Result {
         self.set_and_notify(State::Stopped)
@@ -69,6 +93,7 @@ struct Receiver {
     notify: Condvar,
 }
 
+/// A wrapper that makes it possible to pause, stop, and resume iterators, readers, and writers.
 #[derive(Debug)]
 pub struct Halt<T> {
     inner: T,
@@ -76,11 +101,13 @@ pub struct Halt<T> {
 }
 
 impl<T> Halt<T> {
+    /// Returns a new wrapper around `T`.
     #[inline]
-    pub fn new(inner: impl Into<T>) -> Halt<T> {
-        Halt::from(inner.into())
+    pub fn new(inner: T) -> Halt<T> {
+        Halt::from(inner)
     }
 
+    /// Returns a controller that allows for pausing, stopping, and resuming the `T`.
     #[inline]
     pub fn controller(&self) -> Controller {
         Controller {
@@ -151,6 +178,13 @@ impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
         } else {
             self.inner.next_back()
         }
+    }
+}
+
+impl<I: Extend<A>, A> Extend<A> for Halt<I> {
+    #[inline]
+    fn extend<T: IntoIterator<Item = A>>(&mut self, iter: T) {
+        self.inner.extend(iter);
     }
 }
 
