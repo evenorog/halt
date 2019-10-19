@@ -142,6 +142,18 @@ impl<I: Iterator> Iterator for Halt<I> {
     }
 }
 
+impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let _ = self.wait_if_paused();
+        if self.stopped() {
+            None
+        } else {
+            self.inner.next_back()
+        }
+    }
+}
+
 impl<R: Read> Read for Halt<R> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
