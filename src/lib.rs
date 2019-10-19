@@ -1,12 +1,33 @@
 //! Provides functionality for pausing and resuming iterators, readers, and writers.
 
-use std::error;
+use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 
 /// A custom result type for halt.
-pub type Result = std::result::Result<(), Error>;
+pub type Result = std::result::Result<(), RemoteError>;
+
+/// The remote error type.
+#[derive(Copy, Clone, Debug)]
+pub enum RemoteError {
+    /// The `Halt` has been dropped.
+    HaltIsDropped,
+    /// Failed to take a lock on the mutex.
+    FailedToLock,
+}
+
+impl Display for RemoteError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            RemoteError::HaltIsDropped => f.write_str("the `Halt` has been dropped"),
+            RemoteError::FailedToLock => f.write_str("failed to take a lock on the mutex"),
+        }
+    }
+}
+
+impl Error for RemoteError {}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum State {
@@ -15,34 +36,19 @@ enum State {
     Stopped,
 }
 
-/// The error type.
-#[derive(Copy, Clone, Debug)]
-pub enum Error {
-    /// The receiver has been dropped.
-    NoReceiver,
-    /// Failed to take a lock on the receiver.
-    FailedToLock,
-}
-
-impl Display for Error {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Error::NoReceiver => f.write_str("the receiver has been dropped"),
-            Error::FailedToLock => f.write_str("failed to take a lock on the receiver"),
-        }
-    }
-}
-
-impl error::Error for Error {}
-
-/// A controller that allows for pausing, stopping, and resuming the `Halt` wrapper.
 #[derive(Debug)]
-pub struct Controller {
-    receiver: Weak<Receiver>,
+struct Notify {
+    state: Mutex<State>,
+    condvar: Condvar,
 }
 
-impl Controller {
+/// A remote that allows for pausing, stopping, and resuming the `Halt` wrapper.
+#[derive(Debug)]
+pub struct Remote {
+    notify: Weak<Notify>,
+}
+
+impl Remote {
     /// Pauses the iterator, causes the thread that runs the iterator to sleep until resumed or stopped.
     #[inline]
     pub fn pause(&self) -> Result {
@@ -63,41 +69,27 @@ impl Controller {
 
     #[inline]
     fn set(&self, state: State) -> Result {
-        match self.receiver.upgrade() {
-            Some(receiver) => {
-                let mut guard = receiver.state.lock().map_err(|_| Error::FailedToLock)?;
-                *guard = state;
-                Ok(())
-            }
-            None => Err(Error::NoReceiver),
-        }
+        let notify = self.notify.upgrade().ok_or(RemoteError::HaltIsDropped)?;
+        let mut guard = notify.state.lock().map_err(|_| RemoteError::FailedToLock)?;
+        *guard = state;
+        Ok(())
     }
 
     #[inline]
     fn set_and_notify(&self, state: State) -> Result {
-        match self.receiver.upgrade() {
-            Some(receiver) => {
-                let mut guard = receiver.state.lock().map_err(|_| Error::FailedToLock)?;
-                *guard = state;
-                receiver.notify.notify_all();
-                Ok(())
-            }
-            None => Err(Error::NoReceiver),
-        }
+        let notify = self.notify.upgrade().ok_or(RemoteError::HaltIsDropped)?;
+        let mut guard = notify.state.lock().map_err(|_| RemoteError::FailedToLock)?;
+        *guard = state;
+        notify.condvar.notify_all();
+        Ok(())
     }
-}
-
-#[derive(Debug)]
-struct Receiver {
-    state: Mutex<State>,
-    notify: Condvar,
 }
 
 /// A wrapper that makes it possible to pause, stop, and resume iterators, readers, and writers.
 #[derive(Debug)]
 pub struct Halt<T> {
     inner: T,
-    receiver: Arc<Receiver>,
+    notify: Arc<Notify>,
 }
 
 impl<T> Halt<T> {
@@ -107,17 +99,17 @@ impl<T> Halt<T> {
         Halt::from(inner)
     }
 
-    /// Returns a controller that allows for pausing, stopping, and resuming the `T`.
+    /// Returns a remote that allows for pausing, stopping, and resuming the `T`.
     #[inline]
-    pub fn controller(&self) -> Controller {
-        Controller {
-            receiver: Arc::downgrade(&self.receiver),
+    pub fn remote(&self) -> Remote {
+        Remote {
+            notify: Arc::downgrade(&self.notify),
         }
     }
 
     #[inline]
     fn stopped(&self) -> bool {
-        self.receiver
+        self.notify
             .state
             .lock()
             .map(|guard| *guard == State::Stopped)
@@ -127,16 +119,16 @@ impl<T> Halt<T> {
     #[inline]
     fn wait_if_paused(&self) -> Result {
         let mut guard = self
-            .receiver
+            .notify
             .state
             .lock()
-            .map_err(|_| Error::FailedToLock)?;
+            .map_err(|_| RemoteError::FailedToLock)?;
         while *guard == State::Paused {
             guard = self
-                .receiver
                 .notify
+                .condvar
                 .wait(guard)
-                .map_err(|_| Error::FailedToLock)?;
+                .map_err(|_| RemoteError::FailedToLock)?;
         }
         Ok(())
     }
@@ -147,9 +139,9 @@ impl<T> From<T> for Halt<T> {
     fn from(inner: T) -> Self {
         Halt {
             inner,
-            receiver: Arc::new(Receiver {
+            notify: Arc::new(Notify {
                 state: Mutex::new(State::Running),
-                notify: Condvar::new(),
+                condvar: Condvar::new(),
             }),
         }
     }
