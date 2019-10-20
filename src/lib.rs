@@ -1,4 +1,4 @@
-//! Provides functionality for pausing and resuming iterators, readers, and writers.
+//! Provides functionality for pausing, stopping, and resuming iterators, readers, and writers.
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
@@ -21,7 +21,7 @@ impl Display for RemoteError {
     #[inline]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            RemoteError::HaltIsDropped => f.write_str("the `Halt` has been dropped"),
+            RemoteError::HaltIsDropped => f.write_str("the halt has been dropped"),
             RemoteError::FailedToLock => f.write_str("failed to take a lock on the mutex"),
         }
     }
@@ -49,19 +49,19 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// Pauses the iterator, causes the thread that runs the iterator to sleep until resumed or stopped.
+    /// Pauses the iterator, causing the thread that runs the `Halt` to sleep until resumed or stopped.
     #[inline]
     pub fn pause(&self) -> Result {
         self.set(State::Paused)
     }
 
-    /// Resumes the iterator, causes the iterator to run as normal.
+    /// Resumes the iterator, causing the `Halt` to run as normal.
     #[inline]
     pub fn resume(&self) -> Result {
         self.set_and_notify(State::Running)
     }
 
-    /// Stops the iterator, causes the iterator to return `None` until resumed or paused.
+    /// Stops the iterator, causing the `Halt` to return `None` until resumed or paused.
     #[inline]
     pub fn stop(&self) -> Result {
         self.set_and_notify(State::Stopped)

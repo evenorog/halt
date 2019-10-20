@@ -2,6 +2,12 @@
 name = "halt"
 version = "0.1.0"
 authors = ["evenorog <evenorog@gmail.com>"]
+description = "Provides functionality for pausing, stopping, and resuming iterators, readers, and writers."
+documentation = "https://docs.rs/halt"
+repository = "https://github.com/evenorog/halt"
+readme = "README.md"
+license = "MIT/Apache-2.0"
+exclude = ["/.travis.yml"]
 edition = "2018"
 
 [dependencies]
