@@ -139,8 +139,11 @@ impl Remote {
     fn set_and_notify(&self, state: State) -> Result {
         let notify = self.notify.upgrade().ok_or(Error::HaltIsDropped)?;
         let mut guard = notify.state.lock().map_err(|_| Error::FailedToLock)?;
+        let paused = *guard == State::Paused;
         *guard = state;
-        notify.condvar.notify_all();
+        if paused {
+            notify.condvar.notify_all();
+        }
         Ok(())
     }
 }

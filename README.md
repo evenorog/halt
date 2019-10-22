@@ -1,4 +1,4 @@
-![nyx](halt.svg)
+![nyx](https://raw.githubusercontent.com/evenorog/halt/master/halt.svg?sanitize=true)
 
 [![Travis](https://travis-ci.org/evenorog/halt.svg?branch=master)](https://travis-ci.org/evenorog/halt)
 [![Crates.io](https://img.shields.io/crates/v/halt.svg)](https://crates.io/crates/halt)
