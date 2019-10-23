@@ -1,6 +1,6 @@
 ![nyx](https://raw.githubusercontent.com/evenorog/halt/master/halt.svg?sanitize=true)
 
-[![Travis](https://travis-ci.org/evenorog/halt.svg?branch=master)](https://travis-ci.org/evenorog/halt)
+[![Travis](https://api.travis-ci.com/evenorog/halt.svg?branch=master)](https://travis-ci.com/evenorog/halt)
 [![Crates.io](https://img.shields.io/crates/v/halt.svg)](https://crates.io/crates/halt)
 [![Docs](https://docs.rs/halt/badge.svg)](https://docs.rs/halt)
 
