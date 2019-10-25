@@ -52,8 +52,8 @@ pub type Result = std::result::Result<(), Error>;
 #[derive(Copy, Clone, Debug)]
 pub enum Error {
     /// The `Halt` wrapper has been dropped.
-    HaltIsDropped,
-    /// Failed to take a lock on the mutex.
+    HaltIsMissing,
+    /// Failed to lock mutex.
     FailedToLock,
 }
 
@@ -61,8 +61,8 @@ impl Display for Error {
     #[inline]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Error::HaltIsDropped => f.write_str("the halt wrapper has been dropped"),
-            Error::FailedToLock => f.write_str("failed to take a lock on the mutex"),
+            Error::HaltIsMissing => f.write_str("the halt struct is missing"),
+            Error::FailedToLock => f.write_str("failed to lock mutex"),
         }
     }
 }
@@ -80,6 +80,32 @@ enum State {
 struct Notify {
     state: Mutex<State>,
     condvar: Condvar,
+}
+
+impl Notify {
+    #[inline]
+    fn is_paused(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| *state == State::Paused)
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    fn is_running(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| *state == State::Running)
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    fn is_stopped(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| *state == State::Stopped)
+            .unwrap_or(false)
+    }
 }
 
 impl Default for Notify {
@@ -127,21 +153,49 @@ impl Remote {
         self.set_and_notify(State::Stopped)
     }
 
+    /// Returns `true` if paused.
     #[inline]
-    fn set(&self, state: State) -> Result {
-        let notify = self.notify.upgrade().ok_or(Error::HaltIsDropped)?;
+    pub fn is_paused(&self) -> bool {
+        self.notify
+            .upgrade()
+            .map(|notify| notify.is_paused())
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if running.
+    #[inline]
+    pub fn is_running(&self) -> bool {
+        self.notify
+            .upgrade()
+            .map(|notify| notify.is_running())
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if stopped.
+    #[inline]
+    pub fn is_stopped(&self) -> bool {
+        self.notify
+            .upgrade()
+            .map(|notify| notify.is_stopped())
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    fn set(&self, new: State) -> Result {
+        let notify = self.notify.upgrade().ok_or(Error::HaltIsMissing)?;
         let mut guard = notify.state.lock().map_err(|_| Error::FailedToLock)?;
-        *guard = state;
+        *guard = new;
         Ok(())
     }
 
     #[inline]
-    fn set_and_notify(&self, state: State) -> Result {
-        let notify = self.notify.upgrade().ok_or(Error::HaltIsDropped)?;
+    fn set_and_notify(&self, new: State) -> Result {
+        let notify = self.notify.upgrade().ok_or(Error::HaltIsMissing)?;
         let mut guard = notify.state.lock().map_err(|_| Error::FailedToLock)?;
-        let paused = *guard == State::Paused;
-        *guard = state;
-        if paused {
+        let state = &mut *guard;
+        let need_to_notify = *state == State::Paused && *state != new;
+        *state = new;
+        if need_to_notify {
             notify.condvar.notify_all();
         }
         Ok(())
@@ -179,6 +233,24 @@ impl<T> Halt<T> {
         }
     }
 
+    /// Returns `true` if paused.
+    #[inline]
+    pub fn is_paused(&self) -> bool {
+        self.notify.is_paused()
+    }
+
+    /// Returns `true` if running.
+    #[inline]
+    pub fn is_running(&self) -> bool {
+        self.notify.is_running()
+    }
+
+    /// Returns `true` if stopped.
+    #[inline]
+    pub fn is_stopped(&self) -> bool {
+        self.notify.is_stopped()
+    }
+
     /// Returns a reference to the inner `T`.
     #[inline]
     pub fn get_ref(&self) -> &T {
@@ -195,15 +267,6 @@ impl<T> Halt<T> {
     #[inline]
     pub fn into_inner(self) -> T {
         self.inner
-    }
-
-    #[inline]
-    fn stopped(&self) -> bool {
-        self.notify
-            .state
-            .lock()
-            .map(|guard| *guard == State::Stopped)
-            .unwrap_or(false)
     }
 
     #[inline]
@@ -233,7 +296,7 @@ impl<I: Iterator> Iterator for Halt<I> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let _ = self.wait_if_paused();
-        if self.stopped() {
+        if self.is_stopped() {
             None
         } else {
             self.inner.next()
@@ -245,7 +308,7 @@ impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         let _ = self.wait_if_paused();
-        if self.stopped() {
+        if self.is_stopped() {
             None
         } else {
             self.inner.next_back()
@@ -264,7 +327,7 @@ impl<R: Read> Read for Halt<R> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let _ = self.wait_if_paused();
-        if self.stopped() {
+        if self.is_stopped() {
             Ok(0)
         } else {
             self.inner.read(buf)
@@ -276,7 +339,7 @@ impl<W: Write> Write for Halt<W> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let _ = self.wait_if_paused();
-        if self.stopped() {
+        if self.is_stopped() {
             Ok(0)
         } else {
             self.inner.write(buf)
