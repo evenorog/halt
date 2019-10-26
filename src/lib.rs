@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! halt = "0.1"
+//! halt = "0.2"
 //! ```
 //!
 //! And this to `main.rs`:
@@ -51,7 +51,7 @@ pub type Result = std::result::Result<(), Error>;
 /// The error type used in halt.
 #[derive(Copy, Clone, Debug)]
 pub enum Error {
-    /// The `Halt` wrapper has been dropped.
+    /// The `Halt` struct is missing.
     HaltIsMissing,
     /// Failed to lock mutex.
     FailedToLock,
