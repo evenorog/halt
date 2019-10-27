@@ -13,8 +13,7 @@
 //!
 //! ```no_run
 //! use halt::Halt;
-//! use std::io;
-//! use std::thread;
+//! use std::{io, thread};
 //!
 //! fn main() {
 //!     // Wrap a reader in the halt structure.
