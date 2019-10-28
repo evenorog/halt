@@ -23,8 +23,8 @@
 //!     // Copy forever into a sink, in a separate thread.
 //!     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
 //!     // The remote can now be used to either pause, stop, or resume the reader from the main thread.
-//!     remote.pause();
-//!     remote.resume();
+//!     remote.pause().unwrap();
+//!     remote.resume().unwrap();
 //! }
 //! ```
 
@@ -39,7 +39,6 @@
     unstable_features
 )]
 
-use std::error;
 use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -50,28 +49,28 @@ pub type Result = std::result::Result<(), Error>;
 /// The error type used in halt.
 #[derive(Copy, Clone, Debug)]
 pub enum Error {
-    /// The `Halt` struct is missing.
-    HaltIsMissing,
-    /// Failed to lock mutex.
-    FailedToLock,
+    /// The requested struct was not found.
+    NotFound,
+    /// The requested struct has become invalid.
+    Invalid,
 }
 
 impl Display for Error {
     #[inline]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Error::HaltIsMissing => f.write_str("the halt struct is missing"),
-            Error::FailedToLock => f.write_str("failed to lock mutex"),
+            Error::NotFound => f.write_str("not found"),
+            Error::Invalid => f.write_str("invalid"),
         }
     }
 }
 
-impl error::Error for Error {}
+impl std::error::Error for Error {}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum State {
-    Paused,
     Running,
+    Paused,
     Stopped,
 }
 
@@ -131,19 +130,19 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// Pauses the iterator, causing the thread that runs the `Halt` wrapper to sleep until resumed or stopped.
+    /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
     #[inline]
     pub fn pause(&self) -> Result {
-        self.set(State::Paused)
+        self.set_and_notify(State::Paused)
     }
 
-    /// Resumes the iterator, causing the `Halt` wrapper to run as normal.
+    /// Resumes the `Halt`, causing it to run as normal.
     #[inline]
     pub fn resume(&self) -> Result {
         self.set_and_notify(State::Running)
     }
 
-    /// Stops the iterator, causing the `Halt` to behave as done until resumed or paused.
+    /// Stops the `Halt`, causing it to behave as done until resumed or paused.
     ///
     /// When `Halt` is used as an iterator, the iterator will continuously return `None`.
     /// When used as a reader or writer, it will continuously return `Ok(0)`.
@@ -180,17 +179,9 @@ impl Remote {
     }
 
     #[inline]
-    fn set(&self, new: State) -> Result {
-        let notify = self.notify.upgrade().ok_or(Error::HaltIsMissing)?;
-        let mut guard = notify.state.lock().map_err(|_| Error::FailedToLock)?;
-        *guard = new;
-        Ok(())
-    }
-
-    #[inline]
     fn set_and_notify(&self, new: State) -> Result {
-        let notify = self.notify.upgrade().ok_or(Error::HaltIsMissing)?;
-        let mut guard = notify.state.lock().map_err(|_| Error::FailedToLock)?;
+        let notify = self.notify.upgrade().ok_or(Error::NotFound)?;
+        let mut guard = notify.state.lock().map_err(|_| Error::Invalid)?;
         let state = &mut *guard;
         let need_to_notify = *state == State::Paused && *state != new;
         *state = new;
@@ -270,13 +261,13 @@ impl<T> Halt<T> {
 
     #[inline]
     fn wait_if_paused(&self) -> Result {
-        let mut guard = self.notify.state.lock().map_err(|_| Error::FailedToLock)?;
+        let mut guard = self.notify.state.lock().map_err(|_| Error::Invalid)?;
         while *guard == State::Paused {
             guard = self
                 .notify
                 .condvar
                 .wait(guard)
-                .map_err(|_| Error::FailedToLock)?;
+                .map_err(|_| Error::Invalid)?;
         }
         Ok(())
     }
@@ -315,7 +306,7 @@ impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
     }
 }
 
-impl<I: Extend<A>, A> Extend<A> for Halt<I> {
+impl<A, I: Extend<A>> Extend<A> for Halt<I> {
     #[inline]
     fn extend<T: IntoIterator<Item = A>>(&mut self, iter: T) {
         self.inner.extend(iter);
