@@ -39,35 +39,30 @@
     unstable_features
 )]
 
+use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 
-/// A specialized result type for halt.
-pub type Result = std::result::Result<(), Error>;
+/// A specialized result type used in halt.
+pub type Result = std::result::Result<(), Invalid>;
 
 /// The error type used in halt.
-#[derive(Copy, Clone, Debug)]
-pub enum Error {
-    /// The requested struct was not found.
-    NotFound,
-    /// The requested struct has become invalid.
-    Invalid,
-}
+///
+/// It is returned when the requested item has become invalid.
+#[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Invalid;
 
-impl Display for Error {
+impl Display for Invalid {
     #[inline]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Error::NotFound => f.write_str("not found"),
-            Error::Invalid => f.write_str("invalid"),
-        }
+        f.write_str("invalid")
     }
 }
 
-impl std::error::Error for Error {}
+impl Error for Invalid {}
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 enum State {
     Running,
     Paused,
@@ -180,8 +175,8 @@ impl Remote {
 
     #[inline]
     fn set_and_notify(&self, new: State) -> Result {
-        let notify = self.notify.upgrade().ok_or(Error::NotFound)?;
-        let mut guard = notify.state.lock().map_err(|_| Error::Invalid)?;
+        let notify = self.notify.upgrade().ok_or(Invalid)?;
+        let mut guard = notify.state.lock().map_err(|_| Invalid)?;
         let state = &mut *guard;
         let need_to_notify = *state == State::Paused && *state != new;
         *state = new;
@@ -261,13 +256,9 @@ impl<T> Halt<T> {
 
     #[inline]
     fn wait_if_paused(&self) -> Result {
-        let mut guard = self.notify.state.lock().map_err(|_| Error::Invalid)?;
+        let mut guard = self.notify.state.lock().map_err(|_| Invalid)?;
         while *guard == State::Paused {
-            guard = self
-                .notify
-                .condvar
-                .wait(guard)
-                .map_err(|_| Error::Invalid)?;
+            guard = self.notify.condvar.wait(guard).map_err(|_| Invalid)?;
         }
         Ok(())
     }
