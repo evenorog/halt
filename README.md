@@ -12,7 +12,7 @@ Add this to `Cargo.toml`:
 
 ```toml
 [dependencies]
-halt = "0.2"
+halt = "0.3"
 ```
 
 And this to `main.rs`:
