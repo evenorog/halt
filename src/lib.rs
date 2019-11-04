@@ -49,7 +49,14 @@ enum State {
     Stopped,
 }
 
-#[derive(Debug)]
+impl Default for State {
+    #[inline]
+    fn default() -> Self {
+        State::Running
+    }
+}
+
+#[derive(Debug, Default)]
 struct Notify {
     state: Mutex<State>,
     condvar: Condvar,
@@ -78,16 +85,6 @@ impl Notify {
             .lock()
             .map(|state| *state == State::Stopped)
             .unwrap_or(false)
-    }
-}
-
-impl Default for Notify {
-    #[inline]
-    fn default() -> Self {
-        Notify {
-            state: Mutex::new(State::Running),
-            condvar: Condvar::new(),
-        }
     }
 }
 
@@ -174,7 +171,7 @@ impl Remote {
 /// # use halt::Halt;
 /// let halt = Halt::new(0..10);
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Halt<T> {
     inner: T,
     notify: Arc<Notify>,
