@@ -160,6 +160,7 @@ impl Remote {
         let state = &mut *guard;
         let need_to_notify = *state == State::Paused && *state != new;
         *state = new;
+        drop(guard);
         if need_to_notify {
             notify.condvar.notify_all();
         }
