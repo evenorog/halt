@@ -23,8 +23,8 @@
 //!     // Copy forever into a sink, in a separate thread.
 //!     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
 //!     // The remote can now be used to either pause, stop, or resume the reader from the main thread.
-//!     remote.pause().unwrap();
-//!     remote.resume().unwrap();
+//!     remote.pause();
+//!     remote.resume();
 //! }
 //! ```
 
@@ -39,28 +39,8 @@
     unstable_features
 )]
 
-use std::error::Error;
-use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-
-/// A specialized result type used in halt.
-pub type Result = std::result::Result<(), Invalid>;
-
-/// The error type used in halt.
-///
-/// It is returned when the requested item has become invalid.
-#[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Invalid;
-
-impl Display for Invalid {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        f.write_str("invalid")
-    }
-}
-
-impl Error for Invalid {}
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 enum State {
@@ -127,14 +107,14 @@ pub struct Remote {
 impl Remote {
     /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
     #[inline]
-    pub fn pause(&self) -> Result {
-        self.set_and_notify(State::Paused)
+    pub fn pause(&self) {
+        self.set_and_notify(State::Paused);
     }
 
     /// Resumes the `Halt`, causing it to run as normal.
     #[inline]
-    pub fn resume(&self) -> Result {
-        self.set_and_notify(State::Running)
+    pub fn resume(&self) {
+        self.set_and_notify(State::Running);
     }
 
     /// Stops the `Halt`, causing it to behave as done until resumed or paused.
@@ -142,8 +122,8 @@ impl Remote {
     /// When `Halt` is used as an iterator, the iterator will continuously return `None`.
     /// When used as a reader or writer, it will continuously return `Ok(0)`.
     #[inline]
-    pub fn stop(&self) -> Result {
-        self.set_and_notify(State::Stopped)
+    pub fn stop(&self) {
+        self.set_and_notify(State::Stopped);
     }
 
     /// Returns `true` if paused.
@@ -174,16 +154,15 @@ impl Remote {
     }
 
     #[inline]
-    fn set_and_notify(&self, new: State) -> Result {
-        let notify = self.notify.upgrade().ok_or(Invalid)?;
-        let mut guard = notify.state.lock().map_err(|_| Invalid)?;
+    fn set_and_notify(&self, new: State) {
+        let notify = self.notify.upgrade().unwrap();
+        let mut guard = notify.state.lock().unwrap();
         let state = &mut *guard;
         let need_to_notify = *state == State::Paused && *state != new;
         *state = new;
         if need_to_notify {
             notify.condvar.notify_all();
         }
-        Ok(())
     }
 }
 
@@ -255,12 +234,11 @@ impl<T> Halt<T> {
     }
 
     #[inline]
-    fn wait_if_paused(&self) -> Result {
-        let mut guard = self.notify.state.lock().map_err(|_| Invalid)?;
+    fn wait_if_paused(&self) {
+        let mut guard = self.notify.state.lock().unwrap();
         while *guard == State::Paused {
-            guard = self.notify.condvar.wait(guard).map_err(|_| Invalid)?;
+            guard = self.notify.condvar.wait(guard).unwrap();
         }
-        Ok(())
     }
 }
 
@@ -290,7 +268,7 @@ impl<I: Iterator> Iterator for Halt<I> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let _ = self.wait_if_paused();
+        self.wait_if_paused();
         if self.is_stopped() {
             None
         } else {
@@ -302,7 +280,7 @@ impl<I: Iterator> Iterator for Halt<I> {
 impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
-        let _ = self.wait_if_paused();
+        self.wait_if_paused();
         if self.is_stopped() {
             None
         } else {
@@ -321,7 +299,7 @@ impl<A, I: Extend<A>> Extend<A> for Halt<I> {
 impl<R: Read> Read for Halt<R> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let _ = self.wait_if_paused();
+        self.wait_if_paused();
         if self.is_stopped() {
             Ok(0)
         } else {
@@ -333,7 +311,7 @@ impl<R: Read> Read for Halt<R> {
 impl<W: Write> Write for Halt<W> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let _ = self.wait_if_paused();
+        self.wait_if_paused();
         if self.is_stopped() {
             Ok(0)
         } else {

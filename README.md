@@ -29,8 +29,8 @@ fn main() {
     // Copy forever into a sink, in a separate thread.
     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
     // The remote can now be used to either pause, stop, or resume the reader from the main thread.
-    remote.pause().unwrap();
-    remote.resume().unwrap();
+    remote.pause();
+    remote.resume();
 }
 ```
 
