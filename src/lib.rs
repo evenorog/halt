@@ -88,7 +88,7 @@ impl Notify {
     }
 }
 
-/// A remote that allows for pausing, stopping, and resuming the `Halt` wrapper.
+/// A remote that allows for pausing, stopping, and resuming the `Halt` wrapper from another thread.
 ///
 /// # Examples
 /// ```
@@ -103,12 +103,18 @@ pub struct Remote {
 
 impl Remote {
     /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
+    ///
+    /// # Panics
+    /// Panics if the `Halt` has been dropped.
     #[inline]
     pub fn pause(&self) {
         self.set_and_notify(State::Paused);
     }
 
     /// Resumes the `Halt`, causing it to run as normal.
+    ///
+    /// # Panics
+    /// Panics if the `Halt` has been dropped.
     #[inline]
     pub fn resume(&self) {
         self.set_and_notify(State::Running);
@@ -118,6 +124,9 @@ impl Remote {
     ///
     /// When `Halt` is used as an iterator, the iterator will continuously return `None`.
     /// When used as a reader or writer, it will continuously return `Ok(0)`.
+    ///
+    /// # Panics
+    /// Panics if the `Halt` has been dropped.
     #[inline]
     pub fn stop(&self) {
         self.set_and_notify(State::Stopped);
@@ -150,9 +159,15 @@ impl Remote {
             .unwrap_or(false)
     }
 
+    /// Returns `true` if the `Remote` is valid, i.e. the `Halt` has not been dropped.
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        self.notify.upgrade().is_some()
+    }
+
     #[inline]
     fn set_and_notify(&self, new: State) {
-        let notify = self.notify.upgrade().unwrap();
+        let notify = self.notify.upgrade().expect("invalid remote");
         let mut guard = notify.state.lock().unwrap();
         let state = &mut *guard;
         let need_to_notify = *state == State::Paused && *state != new;
