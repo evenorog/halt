@@ -9,7 +9,7 @@
             <stop offset="100%" style="stop-color:#497fb8;" />
         </linearGradient>
     </defs>
-    <text fill="url(#fill)" dominant-baseline="text-before-edge" font-size="125" font-family="Times New Roman" style="stroke: url(#stroke);">
+    <text fill="url(#fill)" dominant-baseline="text-before-edge" font-size="115" font-family="Times New Roman" style="stroke: url(#stroke); stroke-width: 2;">
         halt
     </text>
 </svg>
