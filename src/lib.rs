@@ -262,20 +262,6 @@ impl<T> From<T> for Halt<T> {
     }
 }
 
-impl<T> AsRef<T> for Halt<T> {
-    #[inline]
-    fn as_ref(&self) -> &T {
-        self.get_ref()
-    }
-}
-
-impl<T> AsMut<T> for Halt<T> {
-    #[inline]
-    fn as_mut(&mut self) -> &mut T {
-        self.get_mut()
-    }
-}
-
 impl<I: Iterator> Iterator for Halt<I> {
     type Item = I::Item;
 
