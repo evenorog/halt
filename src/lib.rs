@@ -16,13 +16,11 @@
 //! use std::{io, thread};
 //!
 //! fn main() {
-//!     // Wrap a reader in the halt structure.
 //!     let mut halt = Halt::new(io::repeat(0));
-//!     // Get a remote to the reader.
 //!     let remote = halt.remote();
-//!     // Copy forever into a sink, in a separate thread.
+//!     // Copy into a sink, in a separate thread.
 //!     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
-//!     // The remote can now be used to either pause, stop, or resume the reader from the main thread.
+//!     // The remote can now be used to pause, stop, and resume the reader from the main thread.
 //!     remote.pause();
 //!     remote.resume();
 //! }
@@ -68,7 +66,7 @@ impl Notify {
         self.state
             .lock()
             .map(|state| *state == State::Paused)
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 
     #[inline]
@@ -76,7 +74,7 @@ impl Notify {
         self.state
             .lock()
             .map(|state| *state == State::Running)
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 
     #[inline]
@@ -84,7 +82,7 @@ impl Notify {
         self.state
             .lock()
             .map(|state| *state == State::Stopped)
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 }
 
@@ -122,8 +120,8 @@ impl Remote {
 
     /// Stops the `Halt`, causing it to behave as done until resumed or paused.
     ///
-    /// When `Halt` is used as an iterator, the iterator will continuously return `None`.
-    /// When used as a reader or writer, it will continuously return `Ok(0)`.
+    /// When `Halt` is used as an iterator, the iterator will return `None`.
+    /// When used as a reader or writer, it will return `Ok(0)`.
     ///
     /// # Panics
     /// Panics if the `Halt` has been dropped.
@@ -138,7 +136,7 @@ impl Remote {
         self.notify
             .upgrade()
             .map(|notify| notify.is_paused())
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 
     /// Returns `true` if running.
@@ -147,7 +145,7 @@ impl Remote {
         self.notify
             .upgrade()
             .map(|notify| notify.is_running())
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 
     /// Returns `true` if stopped.
@@ -156,7 +154,7 @@ impl Remote {
         self.notify
             .upgrade()
             .map(|notify| notify.is_stopped())
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 
     /// Returns `true` if the `Remote` is valid, i.e. the `Halt` has not been dropped.

@@ -22,13 +22,11 @@ use halt::Halt;
 use std::{io, thread};
 
 fn main() {
-    // Wrap a reader in the halt structure.
     let mut halt = Halt::new(io::repeat(0));
-    // Get a remote to the reader.
     let remote = halt.remote();
-    // Copy forever into a sink, in a separate thread.
+    // Copy into a sink, in a separate thread.
     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
-    // The remote can now be used to either pause, stop, or resume the reader from the main thread.
+    // The remote can now be used to pause, stop, and resume the reader from the main thread.
     remote.pause();
     remote.resume();
 }
