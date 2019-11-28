@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! halt = "0.4"
+//! halt = "0.5"
 //! ```
 //!
 //! And this to `main.rs`:
