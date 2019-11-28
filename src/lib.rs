@@ -12,11 +12,10 @@
 //! And this to `main.rs`:
 //!
 //! ```no_run
-//! use halt::Halt;
 //! use std::{io, thread};
 //!
 //! fn main() {
-//!     let mut halt = Halt::new(io::repeat(0));
+//!     let mut halt = halt::new(io::repeat(0));
 //!     let remote = halt.remote();
 //!     // Copy into a sink, in a separate thread.
 //!     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
@@ -90,8 +89,7 @@ impl Notify {
 ///
 /// # Examples
 /// ```
-/// # use halt::Halt;
-/// let halt = Halt::new(0..10);
+/// let halt = halt::new(0..10);
 /// let remote = halt.remote();
 /// ```
 #[derive(Clone, Debug)]
@@ -177,12 +175,17 @@ impl Remote {
     }
 }
 
+/// Returns a new wrapper around `T`.
+#[inline]
+pub fn new<T>(inner: T) -> Halt<T> {
+    Halt::from(inner)
+}
+
 /// A wrapper that makes it possible to pause, stop, and resume iterators, readers, and writers.
 ///
 /// # Examples
 /// ```
-/// # use halt::Halt;
-/// let halt = Halt::new(0..10);
+/// halt::new(0..10);
 /// ```
 #[derive(Debug, Default)]
 pub struct Halt<T> {
@@ -191,15 +194,6 @@ pub struct Halt<T> {
 }
 
 impl<T> Halt<T> {
-    /// Returns a new wrapper around `T`.
-    #[inline]
-    pub fn new(inner: T) -> Halt<T> {
-        Halt {
-            inner,
-            notify: Arc::new(Notify::default()),
-        }
-    }
-
     /// Returns a remote that allows for pausing, stopping, and resuming the `T`.
     #[inline]
     pub fn remote(&self) -> Remote {
@@ -256,7 +250,10 @@ impl<T> Halt<T> {
 impl<T> From<T> for Halt<T> {
     #[inline]
     fn from(inner: T) -> Self {
-        Halt::new(inner)
+        Halt {
+            inner,
+            notify: Arc::new(Notify::default()),
+        }
     }
 }
 

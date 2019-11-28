@@ -18,11 +18,10 @@ halt = "0.4"
 And this to `main.rs`:
 
 ```rust
-use halt::Halt;
 use std::{io, thread};
 
 fn main() {
-    let mut halt = Halt::new(io::repeat(0));
+    let mut halt = halt::new(io::repeat(0));
     let remote = halt.remote();
     // Copy into a sink, in a separate thread.
     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
