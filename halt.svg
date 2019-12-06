@@ -1,15 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg">
     <defs>
         <linearGradient id="fill" x1="0%" y1="100%" x2="0%" y2="0%">
-            <stop offset="0%" style="stop-color:#4c7eb3;" />
-            <stop offset="100%" style="stop-color:#518ac6;" />
-        </linearGradient>
-        <linearGradient id="stroke" x1="0%" y1="100%" x2="0%" y2="0%">
-            <stop offset="0%" style="stop-color:#4473a4;" />
-            <stop offset="100%" style="stop-color:#497fb8;" />
+            <stop offset="0%" style="stop-color:#e6952a;" />
+            <stop offset="100%" style="stop-color:#f75eb1;" />
         </linearGradient>
     </defs>
-    <text fill="url(#fill)" dominant-baseline="text-before-edge" font-size="115" font-family="Times New Roman" style="stroke: url(#stroke); stroke-width: 2;">
+    <text fill="url(#fill)" dominant-baseline="text-before-edge" font-size="115" font-family="Times New Roman" style="stroke: url(#fill); stroke-width: 2;">
         halt
     </text>
 </svg>

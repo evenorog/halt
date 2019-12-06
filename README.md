@@ -18,15 +18,15 @@ halt = "0.5"
 And this to `main.rs`:
 
 ```rust
-use std::{io, thread};
+use std::{io, thread, time::Duration};
 
 fn main() {
     let mut halt = halt::new(io::repeat(0));
     let remote = halt.remote();
-    // Copy into a sink, in a separate thread.
     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
-    // The remote can now be used to pause, stop, and resume the reader from the main thread.
+    thread::sleep(Duration::from_secs(5));
     remote.pause();
+    thread::sleep(Duration::from_secs(5));
     remote.resume();
 }
 ```
