@@ -38,6 +38,7 @@
 
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
+use Status::{Paused, Running, Stopped};
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 enum Status {
@@ -49,7 +50,7 @@ enum Status {
 impl Default for Status {
     #[inline]
     fn default() -> Self {
-        Status::Running
+        Running
     }
 }
 
@@ -61,18 +62,18 @@ struct State {
 
 impl State {
     #[inline]
-    fn is_paused(&self) -> bool {
+    fn is_running(&self) -> bool {
         self.status
             .lock()
-            .map(|status| *status == Status::Paused)
+            .map(|status| *status == Running)
             .unwrap_or_default()
     }
 
     #[inline]
-    fn is_running(&self) -> bool {
+    fn is_paused(&self) -> bool {
         self.status
             .lock()
-            .map(|status| *status == Status::Running)
+            .map(|status| *status == Paused)
             .unwrap_or_default()
     }
 
@@ -80,7 +81,7 @@ impl State {
     fn is_stopped(&self) -> bool {
         self.status
             .lock()
-            .map(|status| *status == Status::Stopped)
+            .map(|status| *status == Stopped)
             .unwrap_or_default()
     }
 }
@@ -98,22 +99,22 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
-    ///
-    /// # Panics
-    /// Panics if the `Halt` has been dropped.
-    #[inline]
-    pub fn pause(&self) {
-        self.set_and_notify(Status::Paused);
-    }
-
     /// Resumes the `Halt`, causing it to run as normal.
     ///
     /// # Panics
     /// Panics if the `Halt` has been dropped.
     #[inline]
     pub fn resume(&self) {
-        self.set_and_notify(Status::Running);
+        self.set_and_notify(Running);
+    }
+
+    /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
+    ///
+    /// # Panics
+    /// Panics if the `Halt` has been dropped.
+    #[inline]
+    pub fn pause(&self) {
+        self.set_and_notify(Paused);
     }
 
     /// Stops the `Halt`, causing it to behave as done until resumed or paused.
@@ -125,16 +126,13 @@ impl Remote {
     /// Panics if the `Halt` has been dropped.
     #[inline]
     pub fn stop(&self) {
-        self.set_and_notify(Status::Stopped);
+        self.set_and_notify(Stopped);
     }
 
-    /// Returns `true` if paused.
+    /// Returns `true` if the `Remote` is valid, i.e. the `Halt` has not been dropped.
     #[inline]
-    pub fn is_paused(&self) -> bool {
-        self.state
-            .upgrade()
-            .map(|state| state.is_paused())
-            .unwrap_or_default()
+    pub fn is_valid(&self) -> bool {
+        self.state.upgrade().is_some()
     }
 
     /// Returns `true` if running.
@@ -143,6 +141,15 @@ impl Remote {
         self.state
             .upgrade()
             .map(|state| state.is_running())
+            .unwrap_or_default()
+    }
+
+    /// Returns `true` if paused.
+    #[inline]
+    pub fn is_paused(&self) -> bool {
+        self.state
+            .upgrade()
+            .map(|state| state.is_paused())
             .unwrap_or_default()
     }
 
@@ -155,18 +162,12 @@ impl Remote {
             .unwrap_or_default()
     }
 
-    /// Returns `true` if the `Remote` is valid, i.e. the `Halt` has not been dropped.
-    #[inline]
-    pub fn is_valid(&self) -> bool {
-        self.state.upgrade().is_some()
-    }
-
     #[inline]
     fn set_and_notify(&self, new: Status) {
         let state = self.state.upgrade().expect("invalid remote");
         let mut guard = state.status.lock().unwrap();
         let status = &mut *guard;
-        let need_to_notify = *status == Status::Paused && *status != new;
+        let need_to_notify = *status == Paused && *status != new;
         *status = new;
         drop(guard);
         if need_to_notify {
@@ -202,16 +203,16 @@ impl<T> Halt<T> {
         }
     }
 
-    /// Returns `true` if paused.
-    #[inline]
-    pub fn is_paused(&self) -> bool {
-        self.state.is_paused()
-    }
-
     /// Returns `true` if running.
     #[inline]
     pub fn is_running(&self) -> bool {
         self.state.is_running()
+    }
+
+    /// Returns `true` if paused.
+    #[inline]
+    pub fn is_paused(&self) -> bool {
+        self.state.is_paused()
     }
 
     /// Returns `true` if stopped.
@@ -241,7 +242,7 @@ impl<T> Halt<T> {
     #[inline]
     fn wait_if_paused(&self) {
         let mut guard = self.state.status.lock().unwrap();
-        while *guard == Status::Paused {
+        while *guard == Paused {
             guard = self.state.condvar.wait(guard).unwrap();
         }
     }
