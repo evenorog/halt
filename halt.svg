@@ -1,11 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg">
-    <defs>
-        <linearGradient id="fill" x1="0%" y1="100%" x2="0%" y2="0%">
-            <stop offset="0%" style="stop-color:#e6952a;" />
-            <stop offset="100%" style="stop-color:#f75eb1;" />
-        </linearGradient>
-    </defs>
-    <text fill="url(#fill)" dominant-baseline="text-before-edge" font-size="115" font-family="Times New Roman" style="stroke: url(#fill); stroke-width: 2;">
+    <text fill="#3e9ac7" dominant-baseline="text-before-edge" font-size="120" font-family="Times New Roman" style="stroke: #3092c1; stroke-width: 2;">
         halt
     </text>
 </svg>
