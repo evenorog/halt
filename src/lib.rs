@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! halt = "0.5"
+//! halt = "1"
 //! ```
 //!
 //! And this to `main.rs`:
@@ -25,7 +25,7 @@
 //! }
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/halt/latest")]
+#![doc(html_root_url = "https://docs.rs/halt/1.0.0")]
 #![deny(
     bad_style,
     bare_trait_objects,
@@ -177,6 +177,11 @@ impl Remote {
 }
 
 /// Returns a new wrapper around `T`.
+///
+/// # Examples
+/// ```
+/// halt::new(0..10);
+/// ```
 #[inline]
 pub fn new<T>(inner: T) -> Halt<T> {
     Halt::from(inner)
@@ -186,7 +191,9 @@ pub fn new<T>(inner: T) -> Halt<T> {
 ///
 /// # Examples
 /// ```
-/// halt::new(0..10);
+/// for i in halt::new(0..10) {
+///     dbg!(i);
+/// }
 /// ```
 #[derive(Debug, Default)]
 pub struct Halt<T> {
