@@ -25,16 +25,8 @@
 //! }
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/halt/1.0.0")]
-#![deny(
-    bad_style,
-    bare_trait_objects,
-    missing_docs,
-    unused_import_braces,
-    unused_qualifications,
-    unsafe_code,
-    unstable_features
-)]
+#![doc(html_root_url = "https://docs.rs/halt")]
+#![deny(missing_docs)]
 
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -48,7 +40,6 @@ enum Status {
 }
 
 impl Default for Status {
-    #[inline]
     fn default() -> Self {
         Running
     }
@@ -61,7 +52,6 @@ struct State {
 }
 
 impl State {
-    #[inline]
     fn is_running(&self) -> bool {
         self.status
             .lock()
@@ -69,7 +59,6 @@ impl State {
             .unwrap_or_default()
     }
 
-    #[inline]
     fn is_paused(&self) -> bool {
         self.status
             .lock()
@@ -77,7 +66,6 @@ impl State {
             .unwrap_or_default()
     }
 
-    #[inline]
     fn is_stopped(&self) -> bool {
         self.status
             .lock()
@@ -103,7 +91,6 @@ impl Remote {
     ///
     /// # Panics
     /// Panics if the `Halt` has been dropped.
-    #[inline]
     pub fn resume(&self) {
         self.set_and_notify(Running);
     }
@@ -112,7 +99,6 @@ impl Remote {
     ///
     /// # Panics
     /// Panics if the `Halt` has been dropped.
-    #[inline]
     pub fn pause(&self) {
         self.set_and_notify(Paused);
     }
@@ -124,19 +110,16 @@ impl Remote {
     ///
     /// # Panics
     /// Panics if the `Halt` has been dropped.
-    #[inline]
     pub fn stop(&self) {
         self.set_and_notify(Stopped);
     }
 
     /// Returns `true` if the `Remote` is valid, i.e. the `Halt` has not been dropped.
-    #[inline]
     pub fn is_valid(&self) -> bool {
         self.state.upgrade().is_some()
     }
 
     /// Returns `true` if running.
-    #[inline]
     pub fn is_running(&self) -> bool {
         self.state
             .upgrade()
@@ -145,7 +128,6 @@ impl Remote {
     }
 
     /// Returns `true` if paused.
-    #[inline]
     pub fn is_paused(&self) -> bool {
         self.state
             .upgrade()
@@ -154,7 +136,6 @@ impl Remote {
     }
 
     /// Returns `true` if stopped.
-    #[inline]
     pub fn is_stopped(&self) -> bool {
         self.state
             .upgrade()
@@ -162,7 +143,6 @@ impl Remote {
             .unwrap_or_default()
     }
 
-    #[inline]
     fn set_and_notify(&self, new: Status) {
         let state = self.state.upgrade().expect("invalid remote");
         let mut guard = state.status.lock().unwrap();
@@ -182,7 +162,6 @@ impl Remote {
 /// ```
 /// halt::new(0..10);
 /// ```
-#[inline]
 pub fn new<T>(inner: T) -> Halt<T> {
     Halt::from(inner)
 }
@@ -203,7 +182,6 @@ pub struct Halt<T> {
 
 impl<T> Halt<T> {
     /// Returns a remote that allows for pausing, stopping, and resuming the `T`.
-    #[inline]
     pub fn remote(&self) -> Remote {
         Remote {
             state: Arc::downgrade(&self.state),
@@ -211,42 +189,35 @@ impl<T> Halt<T> {
     }
 
     /// Returns `true` if running.
-    #[inline]
     pub fn is_running(&self) -> bool {
         self.state.is_running()
     }
 
     /// Returns `true` if paused.
-    #[inline]
     pub fn is_paused(&self) -> bool {
         self.state.is_paused()
     }
 
     /// Returns `true` if stopped.
-    #[inline]
     pub fn is_stopped(&self) -> bool {
         self.state.is_stopped()
     }
 
     /// Returns a reference to the inner `T`.
-    #[inline]
     pub fn get_ref(&self) -> &T {
         &self.inner
     }
 
     /// Returns a mutable reference to the inner `T`.
-    #[inline]
     pub fn get_mut(&mut self) -> &mut T {
         &mut self.inner
     }
 
     /// Returns the inner `T`.
-    #[inline]
     pub fn into_inner(self) -> T {
         self.inner
     }
 
-    #[inline]
     fn wait_if_paused(&self) {
         let mut guard = self.state.status.lock().unwrap();
         while *guard == Paused {
@@ -256,7 +227,6 @@ impl<T> Halt<T> {
 }
 
 impl<T> From<T> for Halt<T> {
-    #[inline]
     fn from(inner: T) -> Self {
         Halt {
             inner,
@@ -268,7 +238,6 @@ impl<T> From<T> for Halt<T> {
 impl<I: Iterator> Iterator for Halt<I> {
     type Item = I::Item;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.wait_if_paused();
         if self.is_stopped() {
@@ -280,7 +249,6 @@ impl<I: Iterator> Iterator for Halt<I> {
 }
 
 impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
-    #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         self.wait_if_paused();
         if self.is_stopped() {
@@ -292,14 +260,12 @@ impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
 }
 
 impl<A, I: Extend<A>> Extend<A> for Halt<I> {
-    #[inline]
     fn extend<T: IntoIterator<Item = A>>(&mut self, iter: T) {
         self.inner.extend(iter);
     }
 }
 
 impl<R: Read> Read for Halt<R> {
-    #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.wait_if_paused();
         if self.is_stopped() {
@@ -311,7 +277,6 @@ impl<R: Read> Read for Halt<R> {
 }
 
 impl<W: Write> Write for Halt<W> {
-    #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.wait_if_paused();
         if self.is_stopped() {
@@ -321,7 +286,6 @@ impl<W: Write> Write for Halt<W> {
         }
     }
 
-    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }
