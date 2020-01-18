@@ -22,6 +22,7 @@
 //!     remote.pause();
 //!     thread::sleep(Duration::from_secs(5));
 //!     remote.resume();
+//!     thread::sleep(Duration::from_secs(5));
 //! }
 //! ```
 
@@ -32,7 +33,7 @@ use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use Status::{Paused, Running, Stopped};
 
-/// Returns a new wrapper around `T`.
+/// Returns a new `Halt` wrapper around `T`.
 ///
 /// # Examples
 /// ```
@@ -224,18 +225,16 @@ pub struct Remote {
 impl Remote {
     /// Resumes the `Halt`, causing it to run as normal.
     ///
-    /// # Panics
-    /// Panics if the `Halt` has been dropped.
-    pub fn resume(&self) {
-        self.set_and_notify(Running);
+    /// Returns `true` if the remote [`is_valid`](struct.Remote.html#method.is_valid).
+    pub fn resume(&self) -> bool {
+        self.set_and_notify(Running)
     }
 
     /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
     ///
-    /// # Panics
-    /// Panics if the `Halt` has been dropped.
-    pub fn pause(&self) {
-        self.set_and_notify(Paused);
+    /// Returns `true` if the remote [`is_valid`](struct.Remote.html#method.is_valid).
+    pub fn pause(&self) -> bool {
+        self.set_and_notify(Paused)
     }
 
     /// Stops the `Halt`, causing it to behave as done until resumed or paused.
@@ -243,10 +242,9 @@ impl Remote {
     /// When `Halt` is used as an iterator, the iterator will return `None`.
     /// When used as a reader or writer, it will return `Ok(0)`.
     ///
-    /// # Panics
-    /// Panics if the `Halt` has been dropped.
-    pub fn stop(&self) {
-        self.set_and_notify(Stopped);
+    /// Returns `true` if the remote [`is_valid`](struct.Remote.html#method.is_valid).
+    pub fn stop(&self) -> bool {
+        self.set_and_notify(Stopped)
     }
 
     /// Returns `true` if the `Remote` is valid, i.e. the `Halt` has not been dropped.
@@ -278,15 +276,19 @@ impl Remote {
             .unwrap_or_default()
     }
 
-    fn set_and_notify(&self, new: Status) {
-        let state = self.state.upgrade().expect("invalid remote");
-        let mut guard = state.status.lock().unwrap();
-        let status = &mut *guard;
-        let need_to_notify = *status == Paused && *status != new;
-        *status = new;
-        drop(guard);
-        if need_to_notify {
-            state.condvar.notify_all();
+    fn set_and_notify(&self, new: Status) -> bool {
+        if let Some(state) = self.state.upgrade() {
+            let mut guard = state.status.lock().unwrap();
+            let status = &mut *guard;
+            let need_to_notify = *status == Paused && *status != new;
+            *status = new;
+            drop(guard);
+            if need_to_notify {
+                state.condvar.notify_all();
+            }
+            true
+        } else {
+            false
         }
     }
 }

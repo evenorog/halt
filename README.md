@@ -28,6 +28,7 @@ fn main() {
     remote.pause();
     thread::sleep(Duration::from_secs(5));
     remote.resume();
+    thread::sleep(Duration::from_secs(5));
 }
 ```
 
