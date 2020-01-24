@@ -1,6 +1,6 @@
 [package]
 name = "halt"
-version = "1.0.0"
+version = "2.0.0"
 authors = ["evenorog <evenorog@gmail.com>"]
 description = "Provides functionality for pausing, stopping, and resuming iterators, readers, and writers."
 documentation = "https://docs.rs/halt"
