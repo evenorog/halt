@@ -6,30 +6,18 @@
 
 Provides functionality for pausing, stopping, and resuming iterators, readers, and writers.
 
-## Examples
-
-Add this to `Cargo.toml`:
-
-```toml
-[dependencies]
-halt = "1"
-```
-
-And this to `main.rs`:
-
 ```rust
 use std::{io, thread, time::Duration};
 
-fn main() {
-    let mut halt = halt::new(io::repeat(0));
-    let remote = halt.remote();
-    thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
-    thread::sleep(Duration::from_secs(5));
-    remote.pause();
-    thread::sleep(Duration::from_secs(5));
-    remote.resume();
-    thread::sleep(Duration::from_secs(5));
-}
+let mut halt = halt::new(io::repeat(0));
+let remote = halt.remote();
+thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
+
+thread::sleep(Duration::from_secs(5));
+remote.pause();
+thread::sleep(Duration::from_secs(5));
+remote.resume();
+thread::sleep(Duration::from_secs(5));
 ```
 
 ### License

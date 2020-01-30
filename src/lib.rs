@@ -1,29 +1,17 @@
 //! Provides functionality for pausing, stopping, and resuming iterators, readers, and writers.
 //!
-//! # Examples
-//!
-//! Add this to `Cargo.toml`:
-//!
-//! ```toml
-//! [dependencies]
-//! halt = "1"
-//! ```
-//!
-//! And this to `main.rs`:
-//!
 //! ```no_run
 //! use std::{io, thread, time::Duration};
 //!
-//! fn main() {
-//!     let mut halt = halt::new(io::repeat(0));
-//!     let remote = halt.remote();
-//!     thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
-//!     thread::sleep(Duration::from_secs(5));
-//!     remote.pause();
-//!     thread::sleep(Duration::from_secs(5));
-//!     remote.resume();
-//!     thread::sleep(Duration::from_secs(5));
-//! }
+//! let mut halt = halt::new(io::repeat(0));
+//! let remote = halt.remote();
+//! thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
+//!
+//! thread::sleep(Duration::from_secs(5));
+//! remote.pause();
+//! thread::sleep(Duration::from_secs(5));
+//! remote.resume();
+//! thread::sleep(Duration::from_secs(5));
 //! ```
 
 #![doc(html_root_url = "https://docs.rs/halt")]
@@ -37,7 +25,7 @@ use Status::{Paused, Running, Stopped};
 ///
 /// # Examples
 /// ```
-/// halt::new(0..10);
+/// let _ = halt::new(0..10);
 /// ```
 pub fn new<T>(inner: T) -> Halt<T> {
     Halt::from(inner)
@@ -191,22 +179,17 @@ impl State {
     fn is_running(&self) -> bool {
         self.status
             .lock()
-            .map(|status| *status == Running)
-            .unwrap_or_default()
+            .map_or(false, |status| *status == Running)
     }
 
     fn is_paused(&self) -> bool {
-        self.status
-            .lock()
-            .map(|status| *status == Paused)
-            .unwrap_or_default()
+        self.status.lock().map_or(false, |status| *status == Paused)
     }
 
     fn is_stopped(&self) -> bool {
         self.status
             .lock()
-            .map(|status| *status == Stopped)
-            .unwrap_or_default()
+            .map_or(false, |status| *status == Stopped)
     }
 }
 
@@ -247,37 +230,34 @@ impl Remote {
         self.set_and_notify(Stopped)
     }
 
-    /// Returns `true` if the `Remote` is valid, i.e. the `Halt` has not been dropped.
+    /// Returns `true` if the remote is valid, i.e. the `Halt` has not been dropped.
     pub fn is_valid(&self) -> bool {
-        self.state.upgrade().is_some()
+        self.state.strong_count() != 0
     }
 
     /// Returns `true` if running.
     pub fn is_running(&self) -> bool {
         self.state
             .upgrade()
-            .map(|state| state.is_running())
-            .unwrap_or_default()
+            .map_or(false, |state| state.is_running())
     }
 
     /// Returns `true` if paused.
     pub fn is_paused(&self) -> bool {
         self.state
             .upgrade()
-            .map(|state| state.is_paused())
-            .unwrap_or_default()
+            .map_or(false, |state| state.is_paused())
     }
 
     /// Returns `true` if stopped.
     pub fn is_stopped(&self) -> bool {
         self.state
             .upgrade()
-            .map(|state| state.is_stopped())
-            .unwrap_or_default()
+            .map_or(false, |state| state.is_stopped())
     }
 
     fn set_and_notify(&self, new: Status) -> bool {
-        if let Some(state) = self.state.upgrade() {
+        self.state.upgrade().map_or(false, |state| {
             let mut guard = state.status.lock().unwrap();
             let status = &mut *guard;
             let need_to_notify = *status == Paused && *status != new;
@@ -287,8 +267,6 @@ impl Remote {
                 state.condvar.notify_all();
             }
             true
-        } else {
-            false
-        }
+        })
     }
 }
