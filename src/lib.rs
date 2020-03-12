@@ -84,10 +84,12 @@ impl<T> Halt<T> {
     }
 
     fn wait_if_paused(&self) {
-        let mut guard = self.state.status.lock().unwrap();
-        while *guard == Paused {
-            guard = self.state.condvar.wait(guard).unwrap();
-        }
+        let guard = self.state.status.lock().unwrap();
+        let _ = self
+            .state
+            .condvar
+            .wait_while(guard, |status| *status == Paused)
+            .unwrap();
     }
 }
 
