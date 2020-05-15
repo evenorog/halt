@@ -85,7 +85,7 @@ impl<T> Halt<T> {
 
     fn wait_if_paused(&self) {
         let guard = self.state.status.lock().unwrap();
-        let _ = self
+        let _guard = self
             .state
             .condvar
             .wait_while(guard, |status| *status == Paused)
