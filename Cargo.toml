@@ -13,5 +13,4 @@ exclude = ["/.travis.yml"]
 edition = "2018"
 
 [badges]
-travis-ci = { repository = "evenorog/halt" }
 maintenance = { status = "actively-developed" }
