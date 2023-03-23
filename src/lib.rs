@@ -35,9 +35,7 @@ pub fn new<T>(inner: T) -> Halt<T> {
 ///
 /// # Examples
 /// ```
-/// for i in halt::new(0..10) {
-///     dbg!(i);
-/// }
+/// let _ = halt::new(0..10);
 /// ```
 #[derive(Debug, Default)]
 pub struct Halt<T> {
@@ -158,17 +156,12 @@ impl<W: Write> Write for Halt<W> {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq, Ord, PartialOrd)]
 enum Status {
+    #[default]
     Running,
     Paused,
     Stopped,
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Running
-    }
 }
 
 #[derive(Debug, Default)]
@@ -210,14 +203,14 @@ pub struct Remote {
 impl Remote {
     /// Resumes the `Halt`, causing it to run as normal.
     ///
-    /// Returns `true` if the remote [`is_valid`](struct.Remote.html#method.is_valid).
+    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn resume(&self) -> bool {
         self.set_and_notify(Running)
     }
 
     /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
     ///
-    /// Returns `true` if the remote [`is_valid`](struct.Remote.html#method.is_valid).
+    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn pause(&self) -> bool {
         self.set_and_notify(Paused)
     }
@@ -227,7 +220,7 @@ impl Remote {
     /// When `Halt` is used as an iterator, the iterator will return `None`.
     /// When used as a reader or writer, it will return `Ok(0)`.
     ///
-    /// Returns `true` if the remote [`is_valid`](struct.Remote.html#method.is_valid).
+    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn stop(&self) -> bool {
         self.set_and_notify(Stopped)
     }
