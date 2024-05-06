@@ -18,8 +18,17 @@
 #![deny(missing_docs)]
 
 use std::io::{self, Read, Write};
+use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::thread::Thread;
 use Status::{Paused, Running, Stopped};
+
+#[derive(Debug)]
+pub struct Action<F> {
+    thread: Thread,
+    remote: Remote,
+    sender: mpsc::Sender<F>,
+}
 
 /// Returns a new `Halt` wrapper around `T`.
 ///
