@@ -13,6 +13,7 @@
 //! thread::sleep(Duration::from_secs(5));
 //! remote.resume();
 //! thread::sleep(Duration::from_secs(5));
+//! remote.stop();
 //! ```
 
 #![doc(html_root_url = "https://docs.rs/halt")]

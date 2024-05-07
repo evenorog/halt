@@ -13,8 +13,20 @@ pub struct Worker {
 }
 
 impl Default for Worker {
-    /// Creates a new worker.
     fn default() -> Self {
+        Worker::new()
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.remote.stop();
+    }
+}
+
+impl Worker {
+    /// Creates a new worker.
+    pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel::<Task>();
         let halt = Halt::new(());
         let remote = halt.remote();
@@ -35,15 +47,7 @@ impl Default for Worker {
 
         Worker { remote, sender }
     }
-}
 
-impl Drop for Worker {
-    fn drop(&mut self) {
-        self.remote.stop();
-    }
-}
-
-impl Worker {
     /// Run `f` on the worker thread.
     pub fn run<O>(&self, f: impl FnOnce() -> O + Send + 'static) -> Option<Receiver<O>>
     where
