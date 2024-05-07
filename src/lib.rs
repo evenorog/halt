@@ -18,46 +18,13 @@
 #![doc(html_root_url = "https://docs.rs/halt")]
 #![deny(missing_docs)]
 
+mod worker;
+
+pub use worker::Worker;
+
 use std::io::{self, Read, Write};
-use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread::{self, JoinHandle};
 use Status::{Paused, Running, Stopped};
-
-/// A worker thread that can be paused and resumed.
-#[derive(Debug)]
-pub struct Worker<F> {
-    remote: Remote,
-    sender: Sender<F>,
-    thread: JoinHandle<()>,
-}
-
-impl<F> Default for Worker<F>
-where
-    F: FnOnce() + Send + 'static,
-{
-    /// Creates a new worker.
-    fn default() -> Self {
-        let (sender, receiver) = mpsc::channel::<F>();
-        let halt = Halt::new(());
-        let remote = halt.remote();
-
-        Worker {
-            remote,
-            sender,
-            thread: thread::spawn(move || {
-                while let Ok(f) = receiver.recv() {
-                    halt.wait_if_paused();
-                    if halt.is_stopped() {
-                        break;
-                    }
-
-                    f();
-                }
-            }),
-        }
-    }
-}
 
 /// A wrapper that makes it possible to pause, stop, and resume iterators, readers, and writers.
 #[derive(Debug, Default)]
