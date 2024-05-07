@@ -2,8 +2,9 @@
 //!
 //! ```no_run
 //! use std::{io, thread, time::Duration};
+//! use halt::Halt;
 //!
-//! let mut halt = halt::new(io::repeat(0));
+//! let mut halt = Halt::new(io::repeat(0));
 //! let remote = halt.remote();
 //! thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
 //!
@@ -18,34 +19,47 @@
 #![deny(missing_docs)]
 
 use std::io::{self, Read, Write};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread::Thread;
+use std::thread::{self, JoinHandle};
 use Status::{Paused, Running, Stopped};
 
+/// A worker thread that can be paused and resumed.
 #[derive(Debug)]
-pub struct Action<F> {
-    thread: Thread,
+pub struct Worker<F> {
     remote: Remote,
-    sender: mpsc::Sender<F>,
+    sender: Sender<F>,
+    thread: JoinHandle<()>,
 }
 
-/// Returns a new `Halt` wrapper around `T`.
-///
-/// # Examples
-/// ```
-/// let _ = halt::new(0..10);
-/// ```
-pub fn new<T>(inner: T) -> Halt<T> {
-    Halt::from(inner)
+impl<F> Default for Worker<F>
+where
+    F: FnOnce() + Send + 'static,
+{
+    /// Creates a new worker.
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel::<F>();
+        let halt = Halt::new(());
+        let remote = halt.remote();
+
+        Worker {
+            remote,
+            sender,
+            thread: thread::spawn(move || {
+                while let Ok(f) = receiver.recv() {
+                    halt.wait_if_paused();
+                    if halt.is_stopped() {
+                        break;
+                    }
+
+                    f();
+                }
+            }),
+        }
+    }
 }
 
 /// A wrapper that makes it possible to pause, stop, and resume iterators, readers, and writers.
-///
-/// # Examples
-/// ```
-/// let _ = halt::new(0..10);
-/// ```
 #[derive(Debug, Default)]
 pub struct Halt<T> {
     inner: T,
@@ -53,6 +67,18 @@ pub struct Halt<T> {
 }
 
 impl<T> Halt<T> {
+    /// Returns a new `Halt` wrapper around `T`.
+    ///
+    /// # Examples
+    /// ```
+    /// use halt::Halt;
+    ///
+    /// let _ = Halt::new(0..10);
+    /// ```
+    pub fn new(inner: T) -> Self {
+        Halt::from(inner)
+    }
+
     /// Returns a remote that allows for pausing, stopping, and resuming the `T`.
     pub fn remote(&self) -> Remote {
         Remote {
@@ -201,7 +227,9 @@ impl State {
 ///
 /// # Examples
 /// ```
-/// let halt = halt::new(0..10);
+/// use halt::Halt;
+///
+/// let halt = Halt::new(0..10);
 /// let remote = halt.remote();
 /// ```
 #[derive(Clone, Debug)]
