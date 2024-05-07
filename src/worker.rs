@@ -2,7 +2,6 @@ use crate::{Halt, Remote};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
-use std::thread::JoinHandle;
 
 type Task = Box<dyn FnOnce() + Send>;
 
@@ -11,7 +10,6 @@ type Task = Box<dyn FnOnce() + Send>;
 pub struct Worker {
     remote: Remote,
     sender: Sender<Task>,
-    join_handle: Option<JoinHandle<()>>,
 }
 
 impl Default for Worker {
@@ -21,7 +19,9 @@ impl Default for Worker {
         let halt = Halt::new(());
         let remote = halt.remote();
 
-        let join = thread::spawn(move || {
+        // This threads runs the tasks detached.
+        // We stop it by calling remote.stop().
+        thread::spawn(move || {
             // FIXME: recv might block indefinitely.
             while let Ok(f) = receiver.recv() {
                 halt.wait_if_paused();
@@ -33,37 +33,30 @@ impl Default for Worker {
             }
         });
 
-        Worker {
-            remote,
-            sender,
-            join_handle: Some(join),
-        }
+        Worker { remote, sender }
     }
 }
 
 impl Drop for Worker {
     fn drop(&mut self) {
         self.remote.stop();
-        if let Some(handle) = self.join_handle.take() {
-            handle.join().ok();
-        }
     }
 }
 
 impl Worker {
     /// Run `f` on the worker thread.
-    pub fn run<O>(&self, f: impl FnOnce() -> O + Send + 'static) -> Receiver<O>
+    pub fn run<O>(&self, f: impl FnOnce() -> O + Send + 'static) -> Option<Receiver<O>>
     where
         O: Send + 'static,
     {
         let (sender, receiver) = mpsc::sync_channel(1);
-        self.sender
-            .send(Box::new(move || {
-                let output = f();
-                sender.send(output).ok();
-            }))
-            .unwrap();
-        receiver
+
+        let task = Box::new(move || {
+            let output = f();
+            sender.send(output).ok();
+        });
+
+        self.sender.send(task).map(|_| receiver).ok()
     }
 
     /// Returns a remote that allows for pausing, stopping, and resuming the worker.
