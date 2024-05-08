@@ -1,6 +1,6 @@
 use crate::{Halt, Remote};
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle, Thread};
 
 type Task = Box<dyn FnOnce() + Send>;
@@ -23,7 +23,7 @@ impl Worker {
     /// Creates a new worker.
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel::<Task>();
-        let halt = Halt::new(());
+        let halt = Halt::new();
         let remote = halt.remote();
 
         let join_handle = thread::spawn(move || {
@@ -45,18 +45,21 @@ impl Worker {
     }
 
     /// Run `f` on the worker thread.
-    pub fn run<O>(&self, f: impl FnOnce() -> O + Send + 'static) -> Option<Receiver<O>>
+    pub fn run<T>(
+        &self,
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<Receiver<T>, SendError<Task>>
     where
-        O: Send + 'static,
+        T: Send + 'static,
     {
         let (sender, receiver) = mpsc::sync_channel(1);
 
         let task = Box::new(move || {
-            let output = f();
-            sender.send(output).ok();
+            let x = f();
+            sender.send(x).ok();
         });
 
-        self.sender.send(task).map(|_| receiver).ok()
+        self.sender.send(task).map(|_| receiver)
     }
 
     /// Returns a remote that allows for pausing, stopping, and resuming the worker.
