@@ -1,7 +1,7 @@
 use crate::{Halt, Remote};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
+use std::thread::{self, JoinHandle, Thread};
 
 type Task = Box<dyn FnOnce() + Send>;
 
@@ -10,17 +10,12 @@ type Task = Box<dyn FnOnce() + Send>;
 pub struct Worker {
     remote: Remote,
     sender: Sender<Task>,
+    join_handle: JoinHandle<()>,
 }
 
 impl Default for Worker {
     fn default() -> Self {
         Worker::new()
-    }
-}
-
-impl Drop for Worker {
-    fn drop(&mut self) {
-        self.remote.stop();
     }
 }
 
@@ -31,21 +26,22 @@ impl Worker {
         let halt = Halt::new(());
         let remote = halt.remote();
 
-        // This threads runs the tasks detached.
-        // We stop it by calling remote.stop().
-        thread::spawn(move || {
-            // FIXME: recv might block indefinitely.
+        let join_handle = thread::spawn(move || {
             while let Ok(f) = receiver.recv() {
                 halt.wait_if_paused();
                 if halt.is_stopped() {
-                    break;
+                    return;
                 }
 
                 f();
             }
         });
 
-        Worker { remote, sender }
+        Worker {
+            remote,
+            sender,
+            join_handle,
+        }
     }
 
     /// Run `f` on the worker thread.
@@ -64,7 +60,12 @@ impl Worker {
     }
 
     /// Returns a remote that allows for pausing, stopping, and resuming the worker.
-    pub fn remote(&self) -> Remote {
-        self.remote.clone()
+    pub fn remote(&self) -> &Remote {
+        &self.remote
+    }
+
+    /// Returns the thread on which the worker is running.
+    pub fn thread(&self) -> &Thread {
+        self.join_handle.thread()
     }
 }
