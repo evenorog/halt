@@ -13,6 +13,12 @@ pub struct Worker {
     join_handle: JoinHandle<()>,
 }
 
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.remote.resume();
+    }
+}
+
 impl Default for Worker {
     fn default() -> Self {
         Worker::new()

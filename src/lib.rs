@@ -1,28 +1,10 @@
-//! Provides functionality for pausing, stopping, and resuming iterators, readers, and writers.
-//!
-//! ```no_run
-//! use std::{io, thread, time::Duration};
-//! use halt::Halter;
-//!
-//! let mut halt = Halter::from(io::repeat(0));
-//! let remote = halt.remote();
-//! thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
-//!
-//! thread::sleep(Duration::from_secs(5));
-//! remote.pause();
-//! thread::sleep(Duration::from_secs(5));
-//! remote.resume();
-//! thread::sleep(Duration::from_secs(5));
-//! remote.stop();
-//! ```
+//! Provides functionality for pausing, stopping, and resuming threads.
 
 #![doc(html_root_url = "https://docs.rs/halt")]
 #![deny(missing_docs)]
 
-mod halter;
 mod worker;
 
-pub use halter::Halter;
 pub use worker::Worker;
 
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -69,6 +51,7 @@ impl Halt {
         self.state.is_stopped()
     }
 
+    /// Sleeps the current thread until resumed or stopped.
     fn wait_if_paused(&self) {
         let guard = self.state.status.lock().unwrap();
         let _guard = self
@@ -174,16 +157,18 @@ impl Remote {
     }
 
     fn set_and_notify(&self, new: Status) -> bool {
-        self.state.upgrade().map_or(false, |state| {
-            let mut guard = state.status.lock().unwrap();
-            let status = &mut *guard;
-            let need_to_notify = *status == Paused && *status != new;
-            *status = new;
-            drop(guard);
-            if need_to_notify {
-                state.condvar.notify_all();
-            }
-            true
-        })
+        let Some(state) = self.state.upgrade() else {
+            return false;
+        };
+
+        let mut guard = state.status.lock().unwrap();
+        let status = &mut *guard;
+        let need_to_notify = *status == Paused && *status != new;
+        *status = new;
+        drop(guard);
+        if need_to_notify {
+            state.condvar.notify_all();
+        }
+        true
     }
 }
