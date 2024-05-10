@@ -10,6 +10,14 @@ pub use worker::Worker;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use Status::{Paused, Running, Stopped};
 
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+enum Status {
+    #[default]
+    Running,
+    Paused,
+    Stopped,
+}
+
 /// Helper for pausing, stopping, and resuming across threads.
 #[derive(Debug, Default)]
 pub struct Halt {
@@ -62,14 +70,6 @@ impl Halt {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq, Ord, PartialOrd)]
-enum Status {
-    #[default]
-    Running,
-    Paused,
-    Stopped,
-}
-
 #[derive(Debug, Default)]
 struct State {
     status: Mutex<Status>,
@@ -92,6 +92,29 @@ impl State {
             .lock()
             .map_or(false, |status| *status == Stopped)
     }
+
+    fn set(&self, new: Status) -> bool {
+        self.set_if(new, |_| true)
+    }
+
+    fn set_if(&self, new: Status, f: impl FnOnce(Status) -> bool) -> bool {
+        let Ok(mut guard) = self.status.lock() else {
+            return false;
+        };
+
+        let status = &mut *guard;
+        if !f(*status) {
+            return false;
+        }
+
+        let need_to_notify = *status == Paused && *status != new;
+        *status = new;
+        drop(guard);
+        if need_to_notify {
+            self.condvar.notify_all();
+        }
+        true
+    }
 }
 
 /// A remote that allows for pausing, stopping, and resuming from another thread.
@@ -113,21 +136,33 @@ impl Remote {
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn resume(&self) -> bool {
-        self.set_and_notify(Running)
+        self.state
+            .upgrade()
+            .map_or(false, |state| state.set(Running))
     }
 
     /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn pause(&self) -> bool {
-        self.set_and_notify(Paused)
+        self.state
+            .upgrade()
+            .map_or(false, |state| state.set(Paused))
     }
 
     /// Stops the `Halt`, causing it to behave as done until resumed or paused.
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn stop(&self) -> bool {
-        self.set_and_notify(Stopped)
+        self.state
+            .upgrade()
+            .map_or(false, |state| state.set(Stopped))
+    }
+
+    pub(crate) fn stop_if_paused(&self) -> bool {
+        self.state.upgrade().map_or(false, |state| {
+            state.set_if(Stopped, |status| status == Paused)
+        })
     }
 
     /// Returns `true` if the remote is valid, i.e. the `Halt` has not been dropped.
@@ -154,21 +189,5 @@ impl Remote {
         self.state
             .upgrade()
             .map_or(false, |state| state.is_stopped())
-    }
-
-    fn set_and_notify(&self, new: Status) -> bool {
-        let Some(state) = self.state.upgrade() else {
-            return false;
-        };
-
-        let mut guard = state.status.lock().unwrap();
-        let status = &mut *guard;
-        let need_to_notify = *status == Paused && *status != new;
-        *status = new;
-        drop(guard);
-        if need_to_notify {
-            state.condvar.notify_all();
-        }
-        true
     }
 }

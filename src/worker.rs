@@ -15,7 +15,10 @@ pub struct Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        self.remote.resume();
+        // If the thread is paused when we drop the worker
+        // it can never be resumed and the thread will never exit.
+        // It is fine to let it be if it is running or stopped.
+        self.remote.stop_if_paused();
     }
 }
 
