@@ -1,3 +1,4 @@
+use crate::Status::{Paused, Running, Stopped};
 use crate::{Halt, Remote};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, SendError, Sender};
@@ -71,13 +72,38 @@ impl Worker {
         self.sender.send(task).map(|_| receiver)
     }
 
-    /// Returns a remote that allows for pausing, stopping, and resuming the worker.
-    pub fn remote(&self) -> &Remote {
-        &self.remote
-    }
-
     /// Returns the thread on which the worker is running.
     pub fn thread(&self) -> &Thread {
         self.join_handle.thread()
+    }
+
+    /// Resumes the `Worker` from a paused state.
+    pub fn resume(&self) -> bool {
+        self.remote.resume()
+    }
+
+    /// Pauses the `Worker`, causing it to sleep until resumed.
+    pub fn pause(&self) -> bool {
+        self.remote.pause()
+    }
+
+    /// Stops the `Worker`, causing it to exit.
+    pub fn stop(&self) -> bool {
+        self.remote.stop()
+    }
+
+    /// Returns `true` if running.
+    pub fn is_running(&self) -> bool {
+        self.remote.is_running()
+    }
+
+    /// Returns `true` if paused.
+    pub fn is_paused(&self) -> bool {
+        self.remote.is_paused()
+    }
+
+    /// Returns `true` if stopped.
+    pub fn is_stopped(&self) -> bool {
+        self.remote.is_stopped()
     }
 }

@@ -10,14 +10,6 @@ pub use worker::Worker;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use Status::{Paused, Running, Stopped};
 
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-enum Status {
-    #[default]
-    Running,
-    Paused,
-    Stopped,
-}
-
 /// Helper for pausing, stopping, and resuming across threads.
 #[derive(Debug, Default)]
 pub struct Halt {
@@ -67,53 +59,6 @@ impl Halt {
             .condvar
             .wait_while(guard, |status| *status == Paused)
             .unwrap();
-    }
-}
-
-#[derive(Debug, Default)]
-struct State {
-    status: Mutex<Status>,
-    condvar: Condvar,
-}
-
-impl State {
-    fn is_running(&self) -> bool {
-        self.status
-            .lock()
-            .map_or(false, |status| *status == Running)
-    }
-
-    fn is_paused(&self) -> bool {
-        self.status.lock().map_or(false, |status| *status == Paused)
-    }
-
-    fn is_stopped(&self) -> bool {
-        self.status
-            .lock()
-            .map_or(false, |status| *status == Stopped)
-    }
-
-    fn set(&self, new: Status) -> bool {
-        self.set_if(new, |_| true)
-    }
-
-    fn set_if(&self, new: Status, f: impl FnOnce(Status) -> bool) -> bool {
-        let Ok(mut guard) = self.status.lock() else {
-            return false;
-        };
-
-        let status = &mut *guard;
-        if !f(*status) {
-            return false;
-        }
-
-        let need_to_notify = *status == Paused && *status != new;
-        *status = new;
-        drop(guard);
-        if need_to_notify {
-            self.condvar.notify_all();
-        }
-        true
     }
 }
 
@@ -189,5 +134,60 @@ impl Remote {
         self.state
             .upgrade()
             .map_or(false, |state| state.is_stopped())
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+enum Status {
+    #[default]
+    Running,
+    Paused,
+    Stopped,
+}
+
+#[derive(Debug, Default)]
+struct State {
+    status: Mutex<Status>,
+    condvar: Condvar,
+}
+
+impl State {
+    fn is_running(&self) -> bool {
+        self.status
+            .lock()
+            .map_or(false, |status| *status == Running)
+    }
+
+    fn is_paused(&self) -> bool {
+        self.status.lock().map_or(false, |status| *status == Paused)
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.status
+            .lock()
+            .map_or(false, |status| *status == Stopped)
+    }
+
+    fn set(&self, new: Status) -> bool {
+        self.set_if(new, |_| true)
+    }
+
+    fn set_if(&self, new: Status, f: impl FnOnce(Status) -> bool) -> bool {
+        let Ok(mut guard) = self.status.lock() else {
+            return false;
+        };
+
+        let status = &mut *guard;
+        if !f(*status) {
+            return false;
+        }
+
+        let need_to_notify = *status == Paused && *status != new;
+        *status = new;
+        drop(guard);
+        if need_to_notify {
+            self.condvar.notify_all();
+        }
+        true
     }
 }
