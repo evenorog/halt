@@ -2,7 +2,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle, Thread};
 
-use crate::{Halt, Remote, Status::*};
+use crate::*;
 
 type Task = Box<dyn FnOnce() + Send>;
 
@@ -36,20 +36,14 @@ impl Worker {
 
         let join_handle = thread::spawn(move || {
             while let Ok(task) = receiver.recv() {
-                // We sleep the thread when paused.
                 let g = halt.wait_while_paused();
-
-                // We skip tasks if stopped.
-                if *g == Stopped {
-                    continue;
+                match *g {
+                    Stopped => continue,
+                    Done => return,
+                    Running | Paused => drop(g),
                 }
 
-                // We exit and terminate when done.
-                if *g == Done {
-                    return;
-                }
-
-                task();
+                task()
             }
         });
 
