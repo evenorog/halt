@@ -1,12 +1,12 @@
-use crate::Status::{Paused, Running, Stopped};
-use crate::{Halt, Remote};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, SendError, Sender};
 use std::thread::{self, JoinHandle, Thread};
 
+use crate::{Halt, Remote, Status::*};
+
 type Task = Box<dyn FnOnce() + Send>;
 
-/// A worker thread that can be paused and resumed.
+/// A worker thread that can be paused, stopped, and resumed.
 #[derive(Debug)]
 pub struct Worker {
     remote: Remote,
@@ -16,10 +16,8 @@ pub struct Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        // If the thread is paused when we drop the worker
-        // it can never be resumed and the thread will never exit.
-        // It is fine to let it be if it is running or stopped.
-        self.remote.stop_if_paused();
+        // Exits the worker thread.
+        self.remote.done();
     }
 }
 
@@ -37,13 +35,21 @@ impl Worker {
         let remote = halt.remote();
 
         let join_handle = thread::spawn(move || {
-            while let Ok(f) = receiver.recv() {
-                halt.wait_if_paused();
-                if halt.is_stopped() {
+            while let Ok(task) = receiver.recv() {
+                // We sleep the thread when paused.
+                let g = halt.wait_while_paused();
+
+                // We skip tasks if stopped.
+                if *g == Stopped {
+                    continue;
+                }
+
+                // We exit and terminate when done.
+                if *g == Done {
                     return;
                 }
 
-                f();
+                task();
             }
         });
 
@@ -87,7 +93,7 @@ impl Worker {
         self.remote.pause()
     }
 
-    /// Stops the `Worker`, causing it to exit.
+    /// Stops the `Worker`, causing it to skip tasks.
     pub fn stop(&self) -> bool {
         self.remote.stop()
     }
