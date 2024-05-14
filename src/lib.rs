@@ -8,7 +8,7 @@ mod worker;
 pub use worker::Worker;
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
-use Status::{Done, Paused, Running, Stopped};
+use Action::{Exit, Pause, Run, Stop};
 
 /// Helper for pausing, stopping, and resuming across threads.
 #[derive(Debug, Default)]
@@ -36,28 +36,13 @@ impl Halt {
         }
     }
 
-    /// Returns `true` if running.
-    pub fn is_running(&self) -> bool {
-        self.state.is_running()
-    }
-
-    /// Returns `true` if paused.
-    pub fn is_paused(&self) -> bool {
-        self.state.is_paused()
-    }
-
-    /// Returns `true` if stopped.
-    pub fn is_stopped(&self) -> bool {
-        self.state.is_stopped()
-    }
-
     /// Sleeps the current thread until resumed or stopped.
-    pub(crate) fn wait_while_paused(&self) -> MutexGuard<Status> {
-        let guard = self.state.status.lock().unwrap();
+    pub(crate) fn wait_while_paused(&self) -> MutexGuard<Action> {
+        let guard = self.state.action.lock().unwrap();
         let guard = self
             .state
             .condvar
-            .wait_while(guard, |status| *status == Paused)
+            .wait_while(guard, |status| *status == Pause)
             .unwrap();
         guard
     }
@@ -78,35 +63,29 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// Resumes the `Halt`, causing it to run as normal.
+    /// Resumes the `Halt`.
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn resume(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.set(Running))
+        self.state.upgrade().map_or(false, |state| state.set(Run))
     }
 
-    /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
+    /// Pauses the `Halt`, causing the thread to sleep.
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn pause(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.set(Paused))
+        self.state.upgrade().map_or(false, |state| state.set(Pause))
     }
 
     /// Stops the `Halt`, causing it to behave as done until resumed or paused.
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn stop(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.set(Stopped))
+        self.state.upgrade().map_or(false, |state| state.set(Stop))
     }
 
-    pub(crate) fn done(&self) -> bool {
-        self.state.upgrade().map_or(false, |state| state.set(Done))
+    pub(crate) fn exit(&self) -> bool {
+        self.state.upgrade().map_or(false, |state| state.set(Exit))
     }
 
     /// Returns `true` if the remote is valid, i.e. the `Halt` has not been dropped.
@@ -137,39 +116,23 @@ impl Remote {
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-enum Status {
+enum Action {
     #[default]
-    Running,
-    Paused,
-    Stopped,
-    Done,
+    Run,
+    Pause,
+    Stop,
+    Exit,
 }
 
 #[derive(Debug, Default)]
 struct State {
-    status: Mutex<Status>,
+    action: Mutex<Action>,
     condvar: Condvar,
 }
 
 impl State {
-    fn is_running(&self) -> bool {
-        self.status
-            .lock()
-            .map_or(false, |status| *status == Running)
-    }
-
-    fn is_paused(&self) -> bool {
-        self.status.lock().map_or(false, |status| *status == Paused)
-    }
-
-    fn is_stopped(&self) -> bool {
-        self.status
-            .lock()
-            .map_or(false, |status| *status == Stopped)
-    }
-
-    fn set(&self, new: Status) -> bool {
-        let Ok(mut guard) = self.status.lock() else {
+    fn set(&self, new: Action) -> bool {
+        let Ok(mut guard) = self.action.lock() else {
             return false;
         };
 

@@ -17,7 +17,7 @@ pub struct Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         // Exits the worker thread.
-        self.remote.done();
+        self.remote.exit();
     }
 }
 
@@ -38,9 +38,9 @@ impl Worker {
             while let Ok(task) = receiver.recv() {
                 let g = halt.wait_while_paused();
                 match *g {
-                    Stopped => continue,
-                    Done => return,
-                    Running | Paused => drop(g),
+                    Exit => return,
+                    Stop => continue,
+                    Run | Pause => drop(g),
                 }
 
                 task()
