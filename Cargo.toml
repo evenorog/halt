@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["pause", "resume", "stop"]
 categories = ["concurrency"]
 exclude = ["/.travis.yml"]
-edition = "2021"
+edition = "2024"
 
 [badges]
 maintenance = { status = "actively-developed" }

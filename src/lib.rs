@@ -7,8 +7,8 @@ mod worker;
 
 pub use worker::Worker;
 
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use Action::{Exit, Pause, Run, Stop};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 
 /// Helper for pausing, stopping, and resuming across threads.
 #[derive(Debug, Default)]
@@ -39,12 +39,10 @@ impl Halt {
     /// Sleeps the current thread until resumed or stopped.
     pub(crate) fn wait_while_paused(&self) -> MutexGuard<'_, Action> {
         let guard = self.state.action.lock().unwrap();
-        let guard = self
-            .state
+        self.state
             .condvar
             .wait_while(guard, |status| *status == Pause)
-            .unwrap();
-        guard
+            .unwrap()
     }
 }
 
