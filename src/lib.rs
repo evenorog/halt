@@ -37,7 +37,7 @@ impl Halt {
     }
 
     /// Sleeps the current thread until resumed or stopped.
-    pub(crate) fn wait_while_paused(&self) -> MutexGuard<Action> {
+    pub(crate) fn wait_while_paused(&self) -> MutexGuard<'_, Action> {
         let guard = self.state.action.lock().unwrap();
         let guard = self
             .state
@@ -67,25 +67,25 @@ impl Remote {
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn resume(&self) -> bool {
-        self.state.upgrade().map_or(false, |state| state.set(Run))
+        self.state.upgrade().is_some_and(|state| state.set(Run))
     }
 
     /// Pauses the `Halt`, causing the thread to sleep.
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn pause(&self) -> bool {
-        self.state.upgrade().map_or(false, |state| state.set(Pause))
+        self.state.upgrade().is_some_and(|state| state.set(Pause))
     }
 
     /// Stops the `Halt`, causing it to behave as done until resumed or paused.
     ///
     /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
     pub fn stop(&self) -> bool {
-        self.state.upgrade().map_or(false, |state| state.set(Stop))
+        self.state.upgrade().is_some_and(|state| state.set(Stop))
     }
 
     pub(crate) fn exit(&self) -> bool {
-        self.state.upgrade().map_or(false, |state| state.set(Exit))
+        self.state.upgrade().is_some_and(|state| state.set(Exit))
     }
 
     /// Returns `true` if the remote is valid, i.e. the `Halt` has not been dropped.
@@ -95,23 +95,17 @@ impl Remote {
 
     /// Returns `true` if running.
     pub fn is_running(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.is_running())
+        self.state.upgrade().is_some_and(|state| state.is(Run))
     }
 
     /// Returns `true` if paused.
     pub fn is_paused(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.is_paused())
+        self.state.upgrade().is_some_and(|state| state.is(Pause))
     }
 
     /// Returns `true` if stopped.
     pub fn is_stopped(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.is_stopped())
+        self.state.upgrade().is_some_and(|state| state.is(Stop))
     }
 }
 
@@ -139,5 +133,9 @@ impl State {
         *guard = new;
         self.condvar.notify_one();
         true
+    }
+
+    fn is(&self, action: Action) -> bool {
+        self.action.lock().is_ok_and(|guard| *guard == action)
     }
 }
