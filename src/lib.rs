@@ -1,267 +1,204 @@
-//! Provides functionality for pausing, stopping, and resuming iterators, readers, and writers.
-//!
-//! ```no_run
-//! use std::{io, thread, time::Duration};
-//!
-//! let mut halt = halt::new(io::repeat(0));
-//! let remote = halt.remote();
-//! thread::spawn(move || io::copy(&mut halt, &mut io::sink()).unwrap());
-//!
-//! thread::sleep(Duration::from_secs(5));
-//! remote.pause();
-//! thread::sleep(Duration::from_secs(5));
-//! remote.resume();
-//! thread::sleep(Duration::from_secs(5));
-//! ```
+//! Provides worker threads that can be paused, stopped, and resumed.
 
 #![doc(html_root_url = "https://docs.rs/halt")]
 #![deny(missing_docs)]
 
-use std::io::{self, Read, Write};
-use std::sync::{Arc, Condvar, Mutex, Weak};
-use Status::{Paused, Running, Stopped};
+use std::sync::mpsc::{self, Receiver, SendError, Sender};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::thread::{self, JoinHandle, Thread};
 
-/// Returns a new `Halt` wrapper around `T`.
-///
-/// # Examples
-/// ```
-/// let _ = halt::new(0..10);
-/// ```
-pub fn new<T>(inner: T) -> Halt<T> {
-    Halt::from(inner)
+use Signal::{Kill, Pause, Run, Stop};
+
+type Task = Box<dyn FnOnce() + Send>;
+
+/// A worker thread that can be paused, stopped, and resumed.
+#[derive(Debug)]
+pub struct Worker {
+    remote: Remote,
+    sender: Sender<Task>,
+    join_handle: JoinHandle<()>,
 }
 
-/// A wrapper that makes it possible to pause, stop, and resume iterators, readers, and writers.
-///
-/// # Examples
-/// ```
-/// let _ = halt::new(0..10);
-/// ```
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.remote.kill();
+    }
+}
+
+impl Default for Worker {
+    fn default() -> Self {
+        Worker::new()
+    }
+}
+
+impl Worker {
+    /// Creates a new worker.
+    pub fn new() -> Self {
+        let (sender, receiver) = mpsc::channel::<Task>();
+        let waiter = Waiter::default();
+        let remote = waiter.remote();
+
+        let join_handle = thread::spawn(move || {
+            while let Ok(task) = receiver.recv() {
+                let g = waiter.wait_while_paused();
+                match *g {
+                    Kill => return,
+                    Stop => continue,
+                    Run | Pause => drop(g),
+                }
+
+                task()
+            }
+        });
+
+        Worker {
+            remote,
+            sender,
+            join_handle,
+        }
+    }
+
+    /// Run `f` on the worker thread.
+    pub fn run<T>(
+        &self,
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<Receiver<T>, SendError<Task>>
+    where
+        T: Send + 'static,
+    {
+        let (sender, receiver) = mpsc::sync_channel(1);
+
+        let task = Box::new(move || {
+            let x = f();
+            sender.send(x).ok();
+        });
+
+        self.sender.send(task).map(|_| receiver)
+    }
+
+    /// Returns the thread on which the worker is running.
+    pub fn thread(&self) -> &Thread {
+        self.join_handle.thread()
+    }
+
+    /// Resumes the `Worker` from a paused state.
+    pub fn resume(&self) -> bool {
+        self.remote.resume()
+    }
+
+    /// Pauses the `Worker`, causing it to sleep until resumed.
+    pub fn pause(&self) -> bool {
+        self.remote.pause()
+    }
+
+    /// Stops the `Worker`, causing it to skip tasks.
+    pub fn stop(&self) -> bool {
+        self.remote.stop()
+    }
+
+    /// Returns `true` if running.
+    pub fn is_running(&self) -> bool {
+        self.remote.is_running()
+    }
+
+    /// Returns `true` if paused.
+    pub fn is_paused(&self) -> bool {
+        self.remote.is_paused()
+    }
+
+    /// Returns `true` if stopped.
+    pub fn is_stopped(&self) -> bool {
+        self.remote.is_stopped()
+    }
+}
+
+/// Helper for pausing, stopping, and resuming across threads.
 #[derive(Debug, Default)]
-pub struct Halt<T> {
-    inner: T,
+struct Waiter {
     state: Arc<State>,
 }
 
-impl<T> Halt<T> {
-    /// Returns a remote that allows for pausing, stopping, and resuming the `T`.
-    pub fn remote(&self) -> Remote {
+impl Waiter {
+    /// Returns a remote that allows for pausing, stopping, and resuming.
+    fn remote(&self) -> Remote {
         Remote {
             state: Arc::downgrade(&self.state),
         }
     }
 
-    /// Returns `true` if running.
-    pub fn is_running(&self) -> bool {
-        self.state.is_running()
-    }
-
-    /// Returns `true` if paused.
-    pub fn is_paused(&self) -> bool {
-        self.state.is_paused()
-    }
-
-    /// Returns `true` if stopped.
-    pub fn is_stopped(&self) -> bool {
-        self.state.is_stopped()
-    }
-
-    /// Returns a reference to the inner `T`.
-    pub fn get_ref(&self) -> &T {
-        &self.inner
-    }
-
-    /// Returns a mutable reference to the inner `T`.
-    pub fn get_mut(&mut self) -> &mut T {
-        &mut self.inner
-    }
-
-    /// Returns the inner `T`.
-    pub fn into_inner(self) -> T {
-        self.inner
-    }
-
-    fn wait_if_paused(&self) {
-        let guard = self.state.status.lock().unwrap();
-        let _guard = self
-            .state
+    /// Sleeps the current thread until resumed or stopped.
+    fn wait_while_paused(&self) -> MutexGuard<'_, Signal> {
+        let guard = self.state.signal.lock().unwrap();
+        self.state
             .condvar
-            .wait_while(guard, |status| *status == Paused)
-            .unwrap();
+            .wait_while(guard, |status| *status == Pause)
+            .unwrap()
     }
 }
 
-impl<T> From<T> for Halt<T> {
-    fn from(inner: T) -> Self {
-        Halt {
-            inner,
-            state: Arc::default(),
-        }
-    }
-}
-
-impl<I: Iterator> Iterator for Halt<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.wait_if_paused();
-        if self.is_stopped() {
-            None
-        } else {
-            self.inner.next()
-        }
-    }
-}
-
-impl<I: DoubleEndedIterator> DoubleEndedIterator for Halt<I> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.wait_if_paused();
-        if self.is_stopped() {
-            None
-        } else {
-            self.inner.next_back()
-        }
-    }
-}
-
-impl<A, I: Extend<A>> Extend<A> for Halt<I> {
-    fn extend<T: IntoIterator<Item = A>>(&mut self, iter: T) {
-        self.inner.extend(iter);
-    }
-}
-
-impl<R: Read> Read for Halt<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.wait_if_paused();
-        if self.is_stopped() {
-            Ok(0)
-        } else {
-            self.inner.read(buf)
-        }
-    }
-}
-
-impl<W: Write> Write for Halt<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.wait_if_paused();
-        if self.is_stopped() {
-            Ok(0)
-        } else {
-            self.inner.write(buf)
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
-    }
-}
-
-#[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq, Ord, PartialOrd)]
-enum Status {
-    #[default]
-    Running,
-    Paused,
-    Stopped,
-}
-
-#[derive(Debug, Default)]
-struct State {
-    status: Mutex<Status>,
-    condvar: Condvar,
-}
-
-impl State {
-    fn is_running(&self) -> bool {
-        self.status
-            .lock()
-            .map_or(false, |status| *status == Running)
-    }
-
-    fn is_paused(&self) -> bool {
-        self.status.lock().map_or(false, |status| *status == Paused)
-    }
-
-    fn is_stopped(&self) -> bool {
-        self.status
-            .lock()
-            .map_or(false, |status| *status == Stopped)
-    }
-}
-
-/// A remote that allows for pausing, stopping, and resuming the `Halt` wrapper from another thread.
-///
-/// # Examples
-/// ```
-/// let halt = halt::new(0..10);
-/// let remote = halt.remote();
-/// ```
+/// A remote that allows for pausing, stopping, and resuming from another thread.
 #[derive(Clone, Debug)]
-pub struct Remote {
+struct Remote {
     state: Weak<State>,
 }
 
 impl Remote {
-    /// Resumes the `Halt`, causing it to run as normal.
-    ///
-    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
-    pub fn resume(&self) -> bool {
-        self.set_and_notify(Running)
+    fn resume(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.set(Run))
     }
 
-    /// Pauses the `Halt`, causing the thread that runs it to sleep until resumed or stopped.
-    ///
-    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
-    pub fn pause(&self) -> bool {
-        self.set_and_notify(Paused)
+    fn pause(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.set(Pause))
     }
 
-    /// Stops the `Halt`, causing it to behave as done until resumed or paused.
-    ///
-    /// When `Halt` is used as an iterator, the iterator will return `None`.
-    /// When used as a reader or writer, it will return `Ok(0)`.
-    ///
-    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
-    pub fn stop(&self) -> bool {
-        self.set_and_notify(Stopped)
+    fn stop(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.set(Stop))
     }
 
-    /// Returns `true` if the remote is valid, i.e. the `Halt` has not been dropped.
-    pub fn is_valid(&self) -> bool {
-        self.state.strong_count() != 0
+    fn kill(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.set(Kill))
     }
 
-    /// Returns `true` if running.
-    pub fn is_running(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.is_running())
+    fn is_running(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.is(Run))
     }
 
-    /// Returns `true` if paused.
-    pub fn is_paused(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.is_paused())
+    fn is_paused(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.is(Pause))
     }
 
-    /// Returns `true` if stopped.
-    pub fn is_stopped(&self) -> bool {
-        self.state
-            .upgrade()
-            .map_or(false, |state| state.is_stopped())
+    fn is_stopped(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.is(Stop))
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+enum Signal {
+    #[default]
+    Run,
+    Pause,
+    Stop,
+    Kill,
+}
+
+#[derive(Debug, Default)]
+struct State {
+    signal: Mutex<Signal>,
+    condvar: Condvar,
+}
+
+impl State {
+    fn set(&self, signal: Signal) -> bool {
+        let Ok(mut guard) = self.signal.lock() else {
+            return false;
+        };
+
+        *guard = signal;
+        self.condvar.notify_one();
+        true
     }
 
-    fn set_and_notify(&self, new: Status) -> bool {
-        self.state.upgrade().map_or(false, |state| {
-            let mut guard = state.status.lock().unwrap();
-            let status = &mut *guard;
-            let need_to_notify = *status == Paused && *status != new;
-            *status = new;
-            drop(guard);
-            if need_to_notify {
-                state.condvar.notify_all();
-            }
-            true
-        })
+    fn is(&self, signal: Signal) -> bool {
+        self.signal.lock().is_ok_and(|guard| *guard == signal)
     }
 }

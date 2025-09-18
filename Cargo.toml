@@ -1,16 +1,15 @@
 [package]
 name = "halt"
-version = "2.0.2"
+version = "3.0.0"
 authors = ["evenorog <evenorog@gmail.com>"]
-description = "Provides functionality for pausing, stopping, and resuming iterators, readers, and writers."
+description = "Provides worker threads that can be paused, stopped, and resumed."
 documentation = "https://docs.rs/halt"
 repository = "https://github.com/evenorog/halt"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-keywords = ["pause", "resume", "stop"]
+keywords = ["worker"]
 categories = ["concurrency"]
-exclude = ["/.travis.yml"]
-edition = "2021"
+edition = "2024"
 
 [badges]
 maintenance = { status = "actively-developed" }
