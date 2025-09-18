@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, Receiver, SendError, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, JoinHandle, Thread};
 
-use Action::{Exit, Pause, Run, Stop};
+use Signal::{Kill, Pause, Run, Stop};
 
 type Task = Box<dyn FnOnce() + Send>;
 
@@ -21,8 +21,7 @@ pub struct Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        // Exits the worker thread.
-        self.remote.exit();
+        self.remote.kill();
     }
 }
 
@@ -43,7 +42,7 @@ impl Worker {
             while let Ok(task) = receiver.recv() {
                 let g = waiter.wait_while_paused();
                 match *g {
-                    Exit => return,
+                    Kill => return,
                     Stop => continue,
                     Run | Pause => drop(g),
                 }
@@ -120,7 +119,7 @@ struct Waiter {
 }
 
 impl Waiter {
-    /// Returns a remote that allows for pausing, stopping, and resuming the `Halt`.
+    /// Returns a remote that allows for pausing, stopping, and resuming.
     fn remote(&self) -> Remote {
         Remote {
             state: Arc::downgrade(&self.state),
@@ -128,8 +127,8 @@ impl Waiter {
     }
 
     /// Sleeps the current thread until resumed or stopped.
-    fn wait_while_paused(&self) -> MutexGuard<'_, Action> {
-        let guard = self.state.action.lock().unwrap();
+    fn wait_while_paused(&self) -> MutexGuard<'_, Signal> {
+        let guard = self.state.signal.lock().unwrap();
         self.state
             .condvar
             .wait_while(guard, |status| *status == Pause)
@@ -138,93 +137,68 @@ impl Waiter {
 }
 
 /// A remote that allows for pausing, stopping, and resuming from another thread.
-///
-/// # Examples
-/// ```
-/// use halt::Waiter;
-///
-/// let halt = Waiter::new();
-/// let remote = halt.remote();
-/// ```
 #[derive(Clone, Debug)]
-pub struct Remote {
+struct Remote {
     state: Weak<State>,
 }
 
 impl Remote {
-    /// Resumes the `Halt`.
-    ///
-    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
-    pub fn resume(&self) -> bool {
+    fn resume(&self) -> bool {
         self.state.upgrade().is_some_and(|state| state.set(Run))
     }
 
-    /// Pauses the `Halt`, causing the thread to sleep.
-    ///
-    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
-    pub fn pause(&self) -> bool {
+    fn pause(&self) -> bool {
         self.state.upgrade().is_some_and(|state| state.set(Pause))
     }
 
-    /// Stops the `Halt`, causing it to behave as done until resumed or paused.
-    ///
-    /// Returns `true` if the remote [`is_valid`](Remote::is_valid).
-    pub fn stop(&self) -> bool {
+    fn stop(&self) -> bool {
         self.state.upgrade().is_some_and(|state| state.set(Stop))
     }
 
-    pub(crate) fn exit(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.set(Exit))
+    fn kill(&self) -> bool {
+        self.state.upgrade().is_some_and(|state| state.set(Kill))
     }
 
-    /// Returns `true` if the remote is valid, i.e. the `thread` has not been dropped.
-    pub fn is_valid(&self) -> bool {
-        self.state.strong_count() != 0
-    }
-
-    /// Returns `true` if running.
-    pub fn is_running(&self) -> bool {
+    fn is_running(&self) -> bool {
         self.state.upgrade().is_some_and(|state| state.is(Run))
     }
 
-    /// Returns `true` if paused.
-    pub fn is_paused(&self) -> bool {
+    fn is_paused(&self) -> bool {
         self.state.upgrade().is_some_and(|state| state.is(Pause))
     }
 
-    /// Returns `true` if stopped.
-    pub fn is_stopped(&self) -> bool {
+    fn is_stopped(&self) -> bool {
         self.state.upgrade().is_some_and(|state| state.is(Stop))
     }
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-enum Action {
+enum Signal {
     #[default]
     Run,
     Pause,
     Stop,
-    Exit,
+    Kill,
 }
 
 #[derive(Debug, Default)]
 struct State {
-    action: Mutex<Action>,
+    signal: Mutex<Signal>,
     condvar: Condvar,
 }
 
 impl State {
-    fn set(&self, new: Action) -> bool {
-        let Ok(mut guard) = self.action.lock() else {
+    fn set(&self, signal: Signal) -> bool {
+        let Ok(mut guard) = self.signal.lock() else {
             return false;
         };
 
-        *guard = new;
+        *guard = signal;
         self.condvar.notify_one();
         true
     }
 
-    fn is(&self, action: Action) -> bool {
-        self.action.lock().is_ok_and(|guard| *guard == action)
+    fn is(&self, signal: Signal) -> bool {
+        self.signal.lock().is_ok_and(|guard| *guard == signal)
     }
 }
