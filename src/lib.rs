@@ -1,43 +1,134 @@
-//! Provides functionality for pausing, stopping, and resuming threads.
+//! Provides worker threads that can be paused, stopped, and resumed.
 
 #![doc(html_root_url = "https://docs.rs/halt")]
 #![deny(missing_docs)]
 
-mod worker;
-
-pub use worker::Worker;
+use std::sync::mpsc::{self, Receiver, SendError, Sender};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::thread::{self, JoinHandle, Thread};
 
 use Action::{Exit, Pause, Run, Stop};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+
+type Task = Box<dyn FnOnce() + Send>;
+
+/// A worker thread that can be paused, stopped, and resumed.
+#[derive(Debug)]
+pub struct Worker {
+    remote: Remote,
+    sender: Sender<Task>,
+    join_handle: JoinHandle<()>,
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        // Exits the worker thread.
+        self.remote.exit();
+    }
+}
+
+impl Default for Worker {
+    fn default() -> Self {
+        Worker::new()
+    }
+}
+
+impl Worker {
+    /// Creates a new worker.
+    pub fn new() -> Self {
+        let (sender, receiver) = mpsc::channel::<Task>();
+        let waiter = Waiter::default();
+        let remote = waiter.remote();
+
+        let join_handle = thread::spawn(move || {
+            while let Ok(task) = receiver.recv() {
+                let g = waiter.wait_while_paused();
+                match *g {
+                    Exit => return,
+                    Stop => continue,
+                    Run | Pause => drop(g),
+                }
+
+                task()
+            }
+        });
+
+        Worker {
+            remote,
+            sender,
+            join_handle,
+        }
+    }
+
+    /// Run `f` on the worker thread.
+    pub fn run<T>(
+        &self,
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<Receiver<T>, SendError<Task>>
+    where
+        T: Send + 'static,
+    {
+        let (sender, receiver) = mpsc::sync_channel(1);
+
+        let task = Box::new(move || {
+            let x = f();
+            sender.send(x).ok();
+        });
+
+        self.sender.send(task).map(|_| receiver)
+    }
+
+    /// Returns the thread on which the worker is running.
+    pub fn thread(&self) -> &Thread {
+        self.join_handle.thread()
+    }
+
+    /// Resumes the `Worker` from a paused state.
+    pub fn resume(&self) -> bool {
+        self.remote.resume()
+    }
+
+    /// Pauses the `Worker`, causing it to sleep until resumed.
+    pub fn pause(&self) -> bool {
+        self.remote.pause()
+    }
+
+    /// Stops the `Worker`, causing it to skip tasks.
+    pub fn stop(&self) -> bool {
+        self.remote.stop()
+    }
+
+    /// Returns `true` if running.
+    pub fn is_running(&self) -> bool {
+        self.remote.is_running()
+    }
+
+    /// Returns `true` if paused.
+    pub fn is_paused(&self) -> bool {
+        self.remote.is_paused()
+    }
+
+    /// Returns `true` if stopped.
+    pub fn is_stopped(&self) -> bool {
+        self.remote.is_stopped()
+    }
+}
 
 /// Helper for pausing, stopping, and resuming across threads.
 #[derive(Debug, Default)]
-pub struct Halt {
+struct Waiter {
     state: Arc<State>,
 }
 
-impl Halt {
-    /// Returns a new `Halt`.
-    ///
-    /// # Examples
-    /// ```
-    /// use halt::Halt;
-    ///
-    /// let _ = Halt::new();
-    /// ```
-    pub fn new() -> Self {
-        Halt::default()
-    }
-
+impl Waiter {
     /// Returns a remote that allows for pausing, stopping, and resuming the `Halt`.
-    pub fn remote(&self) -> Remote {
+    fn remote(&self) -> Remote {
         Remote {
             state: Arc::downgrade(&self.state),
         }
     }
 
     /// Sleeps the current thread until resumed or stopped.
-    pub(crate) fn wait_while_paused(&self) -> MutexGuard<'_, Action> {
+    fn wait_while_paused(&self) -> MutexGuard<'_, Action> {
         let guard = self.state.action.lock().unwrap();
         self.state
             .condvar
@@ -50,9 +141,9 @@ impl Halt {
 ///
 /// # Examples
 /// ```
-/// use halt::Halt;
+/// use halt::Waiter;
 ///
-/// let halt = Halt::new();
+/// let halt = Waiter::new();
 /// let remote = halt.remote();
 /// ```
 #[derive(Clone, Debug)]
@@ -86,7 +177,7 @@ impl Remote {
         self.state.upgrade().is_some_and(|state| state.set(Exit))
     }
 
-    /// Returns `true` if the remote is valid, i.e. the `Halt` has not been dropped.
+    /// Returns `true` if the remote is valid, i.e. the `thread` has not been dropped.
     pub fn is_valid(&self) -> bool {
         self.state.strong_count() != 0
     }
