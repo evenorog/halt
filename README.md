@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/halt.svg)](https://crates.io/crates/halt)
 [![Docs](https://docs.rs/halt/badge.svg)](https://docs.rs/halt)
 
-Provides functionality for pausing, stopping, and resuming threads.
+Provides worker threads that can be paused, stopped, and resumed.
 
 ### License
 
