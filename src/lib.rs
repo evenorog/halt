@@ -21,7 +21,7 @@ pub struct Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        self.remote.kill();
+        self.remote.set(Kill);
     }
 }
 
@@ -81,34 +81,34 @@ impl Worker {
         self.join_handle.thread()
     }
 
-    /// Resumes the `Worker` from a paused state.
+    /// Resumes the `Worker` from a paused state into a running state.
     pub fn resume(&self) -> bool {
-        self.remote.resume()
+        self.remote.set(Run)
     }
 
     /// Pauses the `Worker`, causing it to sleep until resumed.
     pub fn pause(&self) -> bool {
-        self.remote.pause()
+        self.remote.set(Pause)
     }
 
     /// Stops the `Worker`, causing it to skip tasks.
     pub fn stop(&self) -> bool {
-        self.remote.stop()
+        self.remote.is(Stop)
     }
 
     /// Returns `true` if running.
     pub fn is_running(&self) -> bool {
-        self.remote.is_running()
+        self.remote.is(Run)
     }
 
     /// Returns `true` if paused.
     pub fn is_paused(&self) -> bool {
-        self.remote.is_paused()
+        self.remote.is(Pause)
     }
 
     /// Returns `true` if stopped.
     pub fn is_stopped(&self) -> bool {
-        self.remote.is_stopped()
+        self.remote.is(Stop)
     }
 }
 
@@ -143,32 +143,12 @@ struct Remote {
 }
 
 impl Remote {
-    fn resume(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.set(Run))
+    fn set(&self, signal: Signal) -> bool {
+        self.state.upgrade().is_some_and(|state| state.set(signal))
     }
 
-    fn pause(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.set(Pause))
-    }
-
-    fn stop(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.set(Stop))
-    }
-
-    fn kill(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.set(Kill))
-    }
-
-    fn is_running(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.is(Run))
-    }
-
-    fn is_paused(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.is(Pause))
-    }
-
-    fn is_stopped(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.is(Stop))
+    fn is(&self, signal: Signal) -> bool {
+        self.state.upgrade().is_some_and(|state| state.is(signal))
     }
 }
 
@@ -194,7 +174,7 @@ impl State {
         };
 
         *guard = signal;
-        self.condvar.notify_one();
+        self.condvar.notify_all();
         true
     }
 
