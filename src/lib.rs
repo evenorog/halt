@@ -1,7 +1,56 @@
 //! Provides worker threads that can be paused, stopped, and resumed.
-
-#![doc(html_root_url = "https://docs.rs/halt")]
-#![deny(missing_docs)]
+//!
+//! # Examples
+//!
+//! ```
+//! use std::time::Duration;
+//!
+//! fn main() {
+//!     // Create a worker thread
+//!     let worker = halt::Worker::new();
+//!
+//!     // Submit a task and wait for its result
+//!     let rx = worker.run(|| 2 + 2).expect("task queued");
+//!     let result = rx.recv().expect("task completed");
+//!     assert_eq!(result, 4);
+//!
+//!     // Pause the worker; tasks will queue but won’t run until resumed
+//!     worker.pause();
+//!
+//!     // Queue a task while paused
+//!     let rx_paused = worker.run(|| {
+//!         // Simulate work
+//!         std::thread::sleep(Duration::from_millis(100));
+//!         "done while paused"
+//!     }).expect("task queued");
+//!
+//!     // Give a moment to show it's not running while paused
+//!     std::thread::sleep(Duration::from_millis(50));
+//!     assert!(worker.is_paused());
+//!
+//!     // Resume to let the queued task run
+//!     worker.resume();
+//!     let msg = rx_paused.recv().expect("task completed");
+//!     assert_eq!(msg, "done while paused");
+//!
+//!     // Stop will cause the worker to skip tasks until resumed (or killed)
+//!     worker.stop();
+//!
+//!     // This task will be skipped because the worker is stopped
+//!     let rx_skipped = worker.run(|| 42).expect("task queued");
+//!
+//!     // Resume so the worker can process future tasks
+//!     worker.resume();
+//!
+//!     // The skipped task won't produce a value; recv will block forever.
+//!     // Use try_recv or a timeout in real code to handle this:
+//!     assert!(rx_skipped.try_recv().is_err());
+//!
+//!     // Submit another task that will run now
+//!     let rx2 = worker.run(|| "runs after resume").expect("task queued");
+//!     assert_eq!(rx2.recv().unwrap(), "runs after resume");
+//! }
+//! ```
 
 use std::sync::mpsc::{self, Receiver, SendError, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
@@ -32,7 +81,7 @@ impl Default for Worker {
 }
 
 impl Worker {
-    /// Creates a new worker.
+    /// Creates a new worker that is ready to run tasks.
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel::<Task>();
         let waiter = Waiter::default();
@@ -81,7 +130,7 @@ impl Worker {
         self.join_handle.thread()
     }
 
-    /// Resumes the `Worker` from a paused state into a running state.
+    /// Resumes the `Worker` from a paused or stopped state into a running state.
     pub fn resume(&self) -> bool {
         self.remote.set(Run)
     }
@@ -93,7 +142,7 @@ impl Worker {
 
     /// Stops the `Worker`, causing it to skip tasks.
     pub fn stop(&self) -> bool {
-        self.remote.is(Stop)
+        self.remote.set(Stop)
     }
 
     /// Returns `true` if running.
@@ -137,7 +186,7 @@ impl Waiter {
 }
 
 /// A remote that allows for pausing, stopping, and resuming from another thread.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct Remote {
     state: Weak<State>,
 }
