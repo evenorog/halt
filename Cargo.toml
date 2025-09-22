@@ -1,6 +1,6 @@
 [package]
 name = "halt"
-version = "3.0.0"
+version = "3.0.1"
 authors = ["evenorog <evenorog@gmail.com>"]
 description = "Provides worker threads that can be paused, stopped, and resumed."
 documentation = "https://docs.rs/halt"
