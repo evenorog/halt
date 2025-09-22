@@ -4,52 +4,51 @@
 //!
 //! ```
 //! use std::time::Duration;
+//! use std::thread;
 //!
-//! fn main() {
-//!     // Create a worker thread
-//!     let worker = halt::Worker::new();
+//! // Create a worker thread
+//! let worker = halt::Worker::new();
 //!
-//!     // Submit a task and wait for its result
-//!     let rx = worker.run(|| 2 + 2).expect("task queued");
-//!     let result = rx.recv().expect("task completed");
-//!     assert_eq!(result, 4);
+//! // Submit a task and wait for its result
+//! let rx = worker.run(|| 2 + 2).expect("task queued");
+//! let result = rx.recv().expect("task completed");
+//! assert_eq!(result, 4);
 //!
-//!     // Pause the worker; tasks will queue but won’t run until resumed
-//!     worker.pause();
+//! // Pause the worker; tasks will queue but won’t run until resumed
+//! worker.pause();
 //!
-//!     // Queue a task while paused
-//!     let rx_paused = worker.run(|| {
-//!         // Simulate work
-//!         std::thread::sleep(Duration::from_millis(100));
-//!         "done while paused"
-//!     }).expect("task queued");
+//! // Queue a task while paused
+//! let rx_paused = worker.run(|| {
+//!     // Simulate work
+//!     thread::sleep(Duration::from_millis(100));
+//!     "done while paused"
+//! }).expect("task queued");
 //!
-//!     // Give a moment to show it's not running while paused
-//!     std::thread::sleep(Duration::from_millis(50));
-//!     assert!(worker.is_paused());
+//! // Give a moment to show it's not running while paused
+//! thread::sleep(Duration::from_millis(50));
+//! assert!(worker.is_paused());
 //!
-//!     // Resume to let the queued task run
-//!     worker.resume();
-//!     let msg = rx_paused.recv().expect("task completed");
-//!     assert_eq!(msg, "done while paused");
+//! // Resume to let the queued task run
+//! worker.resume();
+//! let msg = rx_paused.recv().expect("task completed");
+//! assert_eq!(msg, "done while paused");
 //!
-//!     // Stop will cause the worker to skip tasks until resumed (or killed)
-//!     worker.stop();
+//! // Stop will cause the worker to skip tasks until resumed (or killed)
+//! worker.stop();
 //!
-//!     // This task will be skipped because the worker is stopped
-//!     let rx_skipped = worker.run(|| 42).expect("task queued");
+//! // This task will be skipped because the worker is stopped
+//! let rx_skipped = worker.run(|| 42).expect("task queued");
 //!
-//!     // Resume so the worker can process future tasks
-//!     worker.resume();
+//! // Resume so the worker can process future tasks
+//! worker.resume();
 //!
-//!     // The skipped task won't produce a value; recv will block forever.
-//!     // Use try_recv or a timeout in real code to handle this:
-//!     assert!(rx_skipped.try_recv().is_err());
+//! // The skipped task won't produce a value; recv will block forever.
+//! // Use try_recv or a timeout in real code to handle this:
+//! assert!(rx_skipped.try_recv().is_err());
 //!
-//!     // Submit another task that will run now
-//!     let rx2 = worker.run(|| "runs after resume").expect("task queued");
-//!     assert_eq!(rx2.recv().unwrap(), "runs after resume");
-//! }
+//! // Submit another task that will run now
+//! let rx2 = worker.run(|| "runs after resume").expect("task queued");
+//! assert_eq!(rx2.recv().unwrap(), "runs after resume");
 //! ```
 
 use std::sync::mpsc::{self, Receiver, SendError, Sender};
